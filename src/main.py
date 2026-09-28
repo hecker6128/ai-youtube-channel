@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from google import genai
 
 API_KEY = os.environ["GEMINI_API_KEY"]
@@ -39,38 +40,25 @@ Rules:
 - don't use clickbait that is not related to the content
 """
 
-max_attempts = 5
+response = client.models.generate_content(
+    model="gemini-3.8-flash",
+    contents=prompt
+)
 
-for attempt in range(1, max_attempts + 1):
-    try:
-        print(f"Try {attempt}/{max_attempts}...")
+text = response.text
 
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=prompt
-        )
+# Kreiraj folder za generisani sadržaj
+output_dir = Path("output")
+output_dir.mkdir(exist_ok=True)
 
-        print("\n===== GENERISANI VIDEO =====\n")
-        print(response.text)
-        print("\n===== KRAJ =====")
+# Sačuvaj Gemini rezultat
+output_file = output_dir / "script.txt"
+output_file.write_text(text, encoding="utf-8")
 
-        break
+print("Gemini rezultat je uspješno sačuvan.")
+print(f"Fajl: {output_file}")
 
-    except Exception as e:
-        error = str(e)
-
-        print(f"Greška: {error}")
-
-        if "503" in error or "UNAVAILABLE" in error:
-            if attempt < max_attempts:
-                wait_time = attempt * 15
-                print(
-                    f"Gemini je trenutno zauzet. "
-                    f"Čekam {wait_time} sekundi prije novog pokušaja..."
-                )
-                time.sleep(wait_time)
-            else:
-                print("Gemini nije bio dostupan nakon svih pokušaja.")
-                raise
-        else:
-            raise
+# Ispiši ga i u log radi lakšeg testiranja
+print("\n--- GENERATED SCRIPT ---")
+print(text)
+print("--- END ---")
