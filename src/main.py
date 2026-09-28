@@ -39,9 +39,38 @@ Rules:
 - don't use clickbait that is not related to the content
 """
 
-response = client.models.generate_content(
-    model="gemini-3.8-flash",
-    contents=prompt
-)
+max_attempts = 5
 
-print(response.text)
+for attempt in range(1, max_attempts + 1):
+    try:
+        print(f"Try {attempt}/{max_attempts}...")
+
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=prompt
+        )
+
+        print("\n===== GENERISANI VIDEO =====\n")
+        print(response.text)
+        print("\n===== KRAJ =====")
+
+        break
+
+    except Exception as e:
+        error = str(e)
+
+        print(f"Greška: {error}")
+
+        if "503" in error or "UNAVAILABLE" in error:
+            if attempt < max_attempts:
+                wait_time = attempt * 15
+                print(
+                    f"Gemini je trenutno zauzet. "
+                    f"Čekam {wait_time} sekundi prije novog pokušaja..."
+                )
+                time.sleep(wait_time)
+            else:
+                print("Gemini nije bio dostupan nakon svih pokušaja.")
+                raise
+        else:
+            raise
