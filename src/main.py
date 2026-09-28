@@ -21,7 +21,7 @@ TITLE:
 [short interesting title]
 
 HOOK:
-[first 1-2 words that grab attention]
+[first words that grab attention]
 
 SCRIPT:
 [complete speech for video]
