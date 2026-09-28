@@ -6,38 +6,37 @@ API_KEY = os.environ["GEMINI_API_KEY"]
 client = genai.Client(api_key=API_KEY)
 
 prompt = """
-Ti si scenarist za YouTube Shorts kanal.
+You are a scriptwriter for YouTube Shorts channel.
 
-Tema kanala:
-robotika, umjetna inteligencija i tehnologija.
+Themu of the channel:
+history facts and interesting events from the past.
 
-Napravi jedan potpuno novi YouTube Short na bosanskom jeziku.
+Create new YouTube short.
 
-Video treba trajati približno 45-60 sekundi.
+Video should be 45-60s long.
 
-Vrati TAČNO ovaj format:
+Write me this exact format:
 
 TITLE:
-[kratak zanimljiv naslov]
+[short interesting title]
 
 HOOK:
-[prve 1-2 rečenice koje privlače pažnju]
+[first 1-2 words that grab attention]
 
 SCRIPT:
-[kompletna naracija za video]
+[complete speech for video]
 
 DESCRIPTION:
-[kratak opis videa]
+[short description of the video]
 
 TAGS:
 [tag1, tag2, tag3, tag4, tag5]
 
-Pravila:
-- koristi jednostavan i prirodan bosanski jezik
-- nemoj izmišljati činjenice
-- nemoj ponavljati poznate klišee
-- nemoj koristiti clickbait koji nije povezan sa sadržajem
-- scenarij mora biti zanimljiv za gledanje do kraja
+Rules:
+- use simple and natural English language
+- don't make up facts
+- don't repeat well-known clichés
+- don't use clickbait that is not related to the content
 """
 
 response = client.models.generate_content(
