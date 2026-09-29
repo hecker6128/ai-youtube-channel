@@ -2,12 +2,15 @@ name: Generate History Short
 
 on:
   workflow_dispatch:
-
   schedule:
     - cron: "0 12 * * *"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: youtube-short-generator
+  cancel-in-progress: false
 
 jobs:
   generate:
@@ -15,267 +18,274 @@ jobs:
 
     steps:
 
+      # ==========================================
+      # CHECKOUT
+      # ==========================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+
+      # ==========================================
+      # PYTHON
+      # ==========================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+
+      # ==========================================
+      # FFMPEG
+      # ==========================================
+
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+
+
+      # ==========================================
+      # PYTHON DEPENDENCIES
+      # ==========================================
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+
+      # ==========================================
+      # TEST PIXABAY IMAGE API
+      # ==========================================
+
       - name: Test Pixabay Image API
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+
         run: |
           python - <<'PY'
           import os
           import json
-          import urllib.parse
-          import urllib.request
-          import urllib.error
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
 
-          key = os.environ.get("PIXABAY_API_KEY")
+          key = os.environ["PIXABAY_API_KEY"]
 
-          if not key:
-              raise RuntimeError(
-                  "PIXABAY_API_KEY GitHub Secret is missing."
-              )
+          url = (
+              "https://pixabay.com/api/"
+              f"?key={key}"
+              "&q=history"
+              "&image_type=photo"
+              "&per_page=3"
+          )
 
-          print("Testing Pixabay Image API...")
-
-          params = urllib.parse.urlencode({
-              "key": key,
-              "q": "history",
-              "per_page": 3,
-              "safesearch": "true"
-          })
-
-          url = "https://pixabay.com/api/?" + params
-
-          request = urllib.request.Request(
+          request = Request(
               url,
               headers={
                   "User-Agent": "Mozilla/5.0"
               }
           )
 
-          try:
-              with urllib.request.urlopen(
-                  request,
-                  timeout=30
-              ) as response:
-
-                  print(
-                      "Pixabay Image HTTP status:",
-                      response.status
-                  )
-
-                  data = json.loads(
-                      response.read().decode("utf-8")
-                  )
-
-                  print(
-                      "Image API total hits:",
-                      data.get("totalHits")
-                  )
-
-                  print("Pixabay Image API test passed.")
-
-          except urllib.error.HTTPError as exc:
-              body = exc.read().decode(
-                  "utf-8",
-                  errors="replace"
+          with urlopen(request, timeout=30) as response:
+              data = json.loads(
+                  response.read().decode("utf-8")
               )
 
-              print(
-                  "Pixabay Image API FAILED"
-              )
-              print(
-                  "HTTP status:",
-                  exc.code
-              )
-              print(
-                  "Response:",
-                  body[:2000]
-              )
+          print(
+              "Pixabay image API OK."
+          )
 
-              raise
-
-          except Exception as exc:
-              print(
-                  "Pixabay Image API test FAILED:"
-              )
-              print(repr(exc))
-              raise
-
+          print(
+              "Results:",
+              len(data.get("hits", []))
+          )
           PY
+
+
+      # ==========================================
+      # TEST PIXABAY VIDEO API
+      # ==========================================
 
       - name: Test Pixabay Video API
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+
         run: |
           python - <<'PY'
           import os
           import json
-          import urllib.parse
-          import urllib.request
-          import urllib.error
+          from urllib.request import Request, urlopen
 
-          key = os.environ.get("PIXABAY_API_KEY")
+          key = os.environ["PIXABAY_API_KEY"]
 
-          if not key:
-              raise RuntimeError(
-                  "PIXABAY_API_KEY GitHub Secret is missing."
-              )
+          url = (
+              "https://pixabay.com/api/videos/"
+              f"?key={key}"
+              "&q=history"
+              "&per_page=3"
+          )
 
-          print("Testing Pixabay Video API...")
-
-          params = urllib.parse.urlencode({
-              "key": key,
-              "q": "history",
-              "per_page": 3,
-              "safesearch": "true"
-          })
-
-          url = "https://pixabay.com/api/videos/?" + params
-
-          request = urllib.request.Request(
+          request = Request(
               url,
               headers={
                   "User-Agent": "Mozilla/5.0"
               }
           )
 
-          try:
-              with urllib.request.urlopen(
-                  request,
-                  timeout=30
-              ) as response:
-
-                  print(
-                      "Pixabay Video HTTP status:",
-                      response.status
-                  )
-
-                  data = json.loads(
-                      response.read().decode("utf-8")
-                  )
-
-                  print(
-                      "Video API total hits:",
-                      data.get("totalHits")
-                  )
-
-                  print("Pixabay Video API test passed.")
-
-          except urllib.error.HTTPError as exc:
-              body = exc.read().decode(
-                  "utf-8",
-                  errors="replace"
+          with urlopen(request, timeout=30) as response:
+              data = json.loads(
+                  response.read().decode("utf-8")
               )
 
-              print(
-                  "Pixabay Video API FAILED"
-              )
-              print(
-                  "HTTP status:",
-                  exc.code
-              )
-              print(
-                  "Response:",
-                  body[:2000]
-              )
+          print(
+              "Pixabay video API OK."
+          )
 
-              raise
-
-          except Exception as exc:
-              print(
-                  "Pixabay Video API test FAILED:"
-              )
-              print(repr(exc))
-              raise
-
+          print(
+              "Results:",
+              len(data.get("hits", []))
+          )
           PY
+
+
+      # ==========================================
+      # CHECK PROJECT
+      # ==========================================
 
       - name: Check main.py
         run: |
-          echo "========================================"
-          echo "PYTHON VERSION"
-          echo "========================================"
           python --version
-
-          echo ""
-          echo "========================================"
-          echo "MAIN.PY LOCATION"
-          echo "========================================"
+          ffmpeg -version | head -n 1
           pwd
+
           ls -lh src/main.py
 
-          echo ""
-          echo "========================================"
-          echo "PYTHON SYNTAX CHECK"
-          echo "========================================"
           python -m py_compile src/main.py
 
-          echo "Syntax check passed."
+
+      # ==========================================
+      # SHOW TOPIC HISTORY
+      # ==========================================
+
+      - name: Show topic history
+        run: |
+          if [ -f "used_topics.json" ]; then
+            echo "Existing topic history:"
+            cat used_topics.json
+          else
+            echo "No topic history exists yet."
+          fi
+
+
+      # ==========================================
+      # GENERATE VIDEO
+      # ==========================================
 
       - name: Generate script, visuals, voice and video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-        run: |
-          echo "========================================"
-          echo "STARTING AI VIDEO GENERATOR"
-          echo "========================================"
 
+        run: |
           python -u src/main.py
 
-          echo ""
-          echo "========================================"
-          echo "MAIN.PY FINISHED"
-          echo "========================================"
+
+      # ==========================================
+      # CHECK GENERATED FILES
+      # ==========================================
 
       - name: Check generated files
         run: |
-          echo "========================================"
-          echo "OUTPUT DIRECTORY"
-          echo "========================================"
+
+          echo "Checking output folder..."
 
           if [ -d "output" ]; then
-            echo "output/ exists."
             ls -lah output/
           else
-            echo "ERROR: output/ directory does not exist."
+            echo "ERROR: output directory does not exist."
             exit 1
           fi
 
+
           echo ""
-          echo "========================================"
-          echo "SCENES DIRECTORY"
-          echo "========================================"
+          echo "Checking scenes..."
 
           if [ -d "output/scenes" ]; then
             ls -lah output/scenes/
           else
-            echo "output/scenes/ does not exist."
+            echo "WARNING: output/scenes does not exist."
           fi
+
+
+          echo ""
+          echo "Checking final video..."
+
+          if [ -f "output/final.mp4" ]; then
+            ls -lh output/final.mp4
+          else
+            echo "ERROR: final.mp4 was not generated."
+            exit 1
+          fi
+
+
+          echo ""
+          echo "Checking topic history..."
+
+          if [ -f "used_topics.json" ]; then
+            ls -lh used_topics.json
+            echo ""
+            cat used_topics.json
+          else
+            echo "ERROR: used_topics.json was not generated."
+            exit 1
+          fi
+
+
+      # ==========================================
+      # SAVE TOPIC HISTORY TO GITHUB
+      # ==========================================
+
+      - name: Save used topics
+        run: |
+
+          echo "Saving used_topics.json to repository..."
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add used_topics.json
+
+          if git diff --cached --quiet; then
+            echo "No topic history changes."
+          else
+            git commit -m "Update used topic history"
+            git push
+            echo "Topic history successfully saved."
+          fi
+
+
+      # ==========================================
+      # UPLOAD GENERATED FILES
+      # ==========================================
 
       - name: Upload generated files
         uses: actions/upload-artifact@v4
+
         with:
           name: generated-short-assets
-          path: output/
+
+          path: |
+            output/
+            used_topics.json
+
           if-no-files-found: error
+
           compression-level: 6
+
           overwrite: false
+
           include-hidden-files: false
