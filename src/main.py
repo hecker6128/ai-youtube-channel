@@ -1,11 +1,12 @@
 import os
 import re
-import time
 import json
+import time
 import subprocess
 from pathlib import Path
-from urllib.request import Request, urlopen
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from google import genai
 import edge_tts
@@ -15,8 +16,14 @@ import edge_tts
 # CONFIGURATION
 # ============================================================
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-PEXELS_API_KEY = os.environ["PEXELS_API_KEY"]
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY")
+
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY is missing.")
+
+if not PIXABAY_API_KEY:
+    raise RuntimeError("PIXABAY_API_KEY is missing.")
 
 MODEL = "gemini-3.5-flash-lite"
 VOICE = "en-US-GuyNeural"
@@ -27,345 +34,316 @@ SCENES_DIR = OUTPUT_DIR / "scenes"
 OUTPUT_DIR.mkdir(exist_ok=True)
 SCENES_DIR.mkdir(exist_ok=True)
 
-client = genai.Client(api_key=GEMINI_API_KEY)
-
 
 # ============================================================
-# GEMINI PROMPT
+# HELPERS
 # ============================================================
 
-prompt = """
-You are a professional writer for an automated YouTube Shorts
-history channel.
+def run_command(command, check=True):
+    print("Running:", " ".join(str(x) for x in command))
 
-Create ONE original historical YouTube Short.
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
-The video must be:
-- 45-60 seconds
-- approximately 125-140 spoken words
-- factual
-- interesting from the first sentence
-- written in simple natural English
-
-IMPORTANT:
-The visual scenes must be suitable for stock video searches.
-Do NOT ask for historical footage that is extremely specific
-or impossible to find.
-
-Create exactly this format:
-
-TITLE:
-[short title]
-
-HOOK:
-[short hook]
-
-SCRIPT:
-[complete narration]
-
-DESCRIPTION:
-[short YouTube description]
-
-TAGS:
-[tag1, tag2, tag3, tag4, tag5]
-
-SCENE1:
-[5-8 word Pexels video search query]
-
-SCENE2:
-[5-8 word Pexels video search query]
-
-SCENE3:
-[5-8 word Pexels video search query]
-
-SCENE4:
-[5-8 word Pexels video search query]
-
-SCENE5:
-[5-8 word Pexels video search query]
-
-SCENE6:
-[5-8 word Pexels video search query]
-
-Rules:
-- use real historical facts
-- do not invent dates, people, events or quotes
-- do not use unsupported claims
-- avoid unrelated clickbait
-- the narration must sound natural when spoken
-- SCRIPT must be one continuous narration
-- do not put headings inside SCRIPT
-- do not use bullet points inside SCRIPT
-- scene searches should describe visually interesting footage
-- prefer things like old buildings, cities, maps, crowds,
-  soldiers, ships, trains, documents, landscapes, fire,
-  factories, streets, monuments and similar subjects
-- scene queries must be in English
-- each scene query should be different
-"""
-
-
-# ============================================================
-# GEMINI GENERATION
-# ============================================================
-
-MAX_ATTEMPTS = 5
-response = None
-
-for attempt in range(1, MAX_ATTEMPTS + 1):
-
-    print(f"Gemini attempt {attempt}/{MAX_ATTEMPTS}...")
-
-    try:
-
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt
+    if check and result.returncode != 0:
+        print(result.stdout)
+        print(result.stderr)
+        raise RuntimeError(
+            f"Command failed with exit code {result.returncode}"
         )
 
-        if response and response.text:
-
-            print("Gemini response received.")
-            break
-
-    except Exception as error:
-
-        print(f"Gemini request failed: {error}")
-
-        if attempt == MAX_ATTEMPTS:
-
-            raise RuntimeError(
-                "Gemini could not generate the script after "
-                f"{MAX_ATTEMPTS} attempts."
-            )
-
-        wait_time = attempt * 15
-
-        print(
-            f"Waiting {wait_time} seconds before retry..."
-        )
-
-        time.sleep(wait_time)
+    return result
 
 
-if not response or not response.text:
+def download_file(url, destination, timeout=120):
+    print(f"Downloading: {url}")
 
-    raise RuntimeError(
-        "Gemini returned an empty response."
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        }
     )
 
+    with urlopen(req, timeout=timeout) as response:
+        data = response.read()
 
-text = response.text.strip()
+    Path(destination).write_bytes(data)
 
+    if not Path(destination).exists() or Path(destination).stat().st_size < 1000:
+        raise RuntimeError(f"Downloaded file is invalid: {destination}")
 
-# ============================================================
-# SAVE GEMINI RESPONSE
-# ============================================================
-
-script_file = OUTPUT_DIR / "script.txt"
-
-script_file.write_text(
-    text,
-    encoding="utf-8"
-)
+    return destination
 
 
-# ============================================================
-# EXTRACT TITLE
-# ============================================================
-
-title_match = re.search(
-    r"(?im)^TITLE:\s*(.+)$",
-    text
-)
-
-if title_match:
-
-    title = title_match.group(1).strip()
-
-else:
-
-    title = "History Fact"
+def clean_text(text):
+    text = re.sub(r"\s+", " ", text or "")
+    return text.strip()
 
 
-title = re.sub(
-    r"[\r\n]+",
-    " ",
-    title
-)
-
-
-# ============================================================
-# EXTRACT SCRIPT
-# ============================================================
-
-script_match = re.search(
-    r"(?is)SCRIPT:\s*(.*?)(?=\n\s*DESCRIPTION:|\Z)",
-    text
-)
-
-if not script_match:
-
-    raise RuntimeError(
-        "Could not find SCRIPT section."
-    )
-
-
-script = script_match.group(1).strip()
-
-script = script.replace("```", "").strip()
-
-
-narration_file = OUTPUT_DIR / "narration.txt"
-
-narration_file.write_text(
-    script,
-    encoding="utf-8"
-)
-
-
-# ============================================================
-# EXTRACT SCENE SEARCH QUERIES
-# ============================================================
-
-scene_queries = []
-
-for i in range(1, 7):
-
-    match = re.search(
-        rf"(?im)^SCENE{i}:\s*(.+)$",
-        text
-    )
+def extract_field(text, field):
+    pattern = rf"(?im)^\s*{re.escape(field)}\s*:\s*(.+?)\s*$"
+    match = re.search(pattern, text)
 
     if match:
+        return clean_text(match.group(1))
 
-        query = match.group(1).strip()
-
-        query = re.sub(
-            r"[\r\n]+",
-            " ",
-            query
-        )
-
-        scene_queries.append(query)
-
-    else:
-
-        scene_queries.append(
-            "historical city old buildings"
-        )
+    return ""
 
 
-print()
-print("Scene queries:")
-
-for i, query in enumerate(scene_queries, 1):
-
-    print(
-        f"Scene {i}: {query}"
+def extract_multiline_field(text, field, next_fields):
+    pattern = (
+        rf"(?is)"
+        rf"{re.escape(field)}\s*:\s*"
+        rf"(.*?)"
+        rf"(?=\n\s*(?:{'|'.join(map(re.escape, next_fields))})\s*:|\Z)"
     )
+
+    match = re.search(pattern, text)
+
+    if not match:
+        return ""
+
+    return clean_text(match.group(1))
+
+
+# ============================================================
+# GEMINI
+# ============================================================
+
+def generate_content():
+    print("Generating history short with Gemini...")
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    prompt = """
+Create one highly engaging English YouTube Short about a real historical
+event, person, invention, mystery, disaster, or surprising historical fact.
+
+The video should be approximately 40-60 seconds long.
+
+Use simple but interesting spoken English.
+
+Return EXACTLY this structure:
+
+TITLE: ...
+HOOK: ...
+SCRIPT: ...
+DESCRIPTION: ...
+TAGS: ...
+
+SCENE1: ...
+SCENE2: ...
+SCENE3: ...
+SCENE4: ...
+SCENE5: ...
+SCENE6: ...
+
+Rules:
+
+- SCRIPT should be approximately 100-135 spoken words.
+- The first sentence must be a strong hook.
+- Do not use fake historical facts.
+- Do not invent quotes.
+- Make the story easy to understand without prior knowledge.
+- The ending should contain an interesting final fact or twist.
+- SCENE1 through SCENE6 must each contain 3 alternative stock-media search queries.
+- Separate the 3 queries with " | ".
+- Each query should contain only 3-8 simple English words.
+- Queries should describe things that could realistically exist as stock footage
+  or historical-looking imagery.
+- Do NOT use exact names of copyrighted films or television shows.
+- Prefer visual concepts over abstract concepts.
+
+Example:
+
+SCENE1: ancient roman city fire | old city burning | historical city fire
+"""
+
+    last_error = None
+
+    for attempt in range(1, 6):
+        try:
+            print(f"Gemini attempt {attempt}/5...")
+
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=prompt
+            )
+
+            text = response.text
+
+            if not text or len(text.strip()) < 100:
+                raise RuntimeError("Gemini returned an empty or very short response.")
+
+            print("Gemini response received.")
+
+            return text
+
+        except Exception as exc:
+            last_error = exc
+
+            print(f"Gemini attempt failed: {exc}")
+
+            if attempt < 5:
+                wait_time = attempt * 15
+                print(f"Waiting {wait_time} seconds...")
+                time.sleep(wait_time)
+
+    raise RuntimeError(
+        f"Gemini failed after 5 attempts: {last_error}"
+    )
+
+
+# ============================================================
+# PARSE GEMINI
+# ============================================================
+
+def parse_gemini(text):
+    title = extract_field(text, "TITLE")
+    hook = extract_field(text, "HOOK")
+
+    script = extract_multiline_field(
+        text,
+        "SCRIPT",
+        [
+            "DESCRIPTION",
+            "TAGS",
+            "SCENE1"
+        ]
+    )
+
+    description = extract_field(text, "DESCRIPTION")
+    tags = extract_field(text, "TAGS")
+
+    scenes = {}
+
+    for i in range(1, 7):
+        scenes[i] = extract_field(text, f"SCENE{i}")
+
+    if not script:
+        raise RuntimeError("Gemini did not return a usable SCRIPT.")
+
+    if not title:
+        title = "Amazing Historical Fact"
+
+    for i in range(1, 7):
+        if not scenes[i]:
+            scenes[i] = "historical scene | old city | history"
+
+    return {
+        "title": title,
+        "hook": hook,
+        "script": script,
+        "description": description,
+        "tags": tags,
+        "scenes": scenes
+    }
+
+
+# ============================================================
+# SAVE SCRIPT
+# ============================================================
+
+def save_script(data, raw_response):
+    script_file = OUTPUT_DIR / "script.txt"
+
+    with open(script_file, "w", encoding="utf-8") as f:
+        f.write(raw_response)
+
+    narration_file = OUTPUT_DIR / "narration.txt"
+
+    with open(narration_file, "w", encoding="utf-8") as f:
+        f.write(data["script"])
+
+    metadata_file = OUTPUT_DIR / "metadata.txt"
+
+    with open(metadata_file, "w", encoding="utf-8") as f:
+        f.write(f"TITLE: {data['title']}\n\n")
+        f.write(f"DESCRIPTION: {data['description']}\n\n")
+        f.write(f"TAGS: {data['tags']}\n\n")
+
+        for i in range(1, 7):
+            f.write(f"SCENE{i}: {data['scenes'][i]}\n")
+
+    print("Script and metadata saved.")
 
 
 # ============================================================
 # TEXT TO SPEECH
 # ============================================================
 
-audio_file = OUTPUT_DIR / "voice.mp3"
+async def generate_voice(script):
+    print("Generating voice...")
 
-print()
-print("Generating voice...")
+    output = OUTPUT_DIR / "voice.mp3"
 
-communicate = edge_tts.Communicate(
-    script,
-    VOICE
-)
+    communicate = edge_tts.Communicate(
+        script,
+        VOICE
+    )
 
-communicate.save_sync(
-    str(audio_file)
-)
+    await communicate.save(str(output))
 
-print(
-    "Voice generated successfully."
-)
+    if not output.exists() or output.stat().st_size < 1000:
+        raise RuntimeError("Voice generation failed.")
+
+    print("Voice generated successfully.")
+
+    return output
 
 
 # ============================================================
-# CHECK FFMPEG
+# FFMPEG CHECK
 # ============================================================
 
-print()
-print("Checking FFmpeg...")
+def check_ffmpeg():
+    print("Checking FFmpeg...")
 
-try:
-
-    subprocess.run(
+    result = subprocess.run(
         ["ffmpeg", "-version"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=True
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
     )
 
-except Exception:
+    if result.returncode != 0:
+        raise RuntimeError("FFmpeg is not available.")
 
-    raise RuntimeError(
-        "FFmpeg is not installed."
+    print("FFmpeg available.")
+
+
+def get_audio_duration(audio_file):
+    result = run_command(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(audio_file)
+        ]
     )
+
+    return float(result.stdout.strip())
 
 
 # ============================================================
-# AUDIO DURATION
-# ============================================================
-
-probe = subprocess.run(
-    [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(audio_file)
-    ],
-    capture_output=True,
-    text=True,
-    check=True
-)
-
-duration = float(
-    probe.stdout.strip()
-)
-
-print(
-    f"Audio duration: {duration:.2f} seconds"
-)
-
-
-if duration < 5:
-
-    raise RuntimeError(
-        "Narration is too short."
-    )
-
-
-# ============================================================
-# CREATE SUBTITLES
+# SUBTITLES
 # ============================================================
 
 def format_srt_time(seconds):
-
-    milliseconds = int(
-        (seconds - int(seconds)) * 1000
-    )
-
+    milliseconds = int(round((seconds % 1) * 1000))
     total_seconds = int(seconds)
 
     hours = total_seconds // 3600
-
-    minutes = (
-        total_seconds % 3600
-    ) // 60
-
+    minutes = (total_seconds % 3600) // 60
     secs = total_seconds % 60
 
     return (
@@ -376,769 +354,511 @@ def format_srt_time(seconds):
     )
 
 
-def create_subtitles(text, duration):
+def create_subtitles(script, duration):
+    print("Creating subtitles...")
 
-    words = text.split()
+    words = script.split()
 
     if not words:
+        raise RuntimeError("No words available for subtitles.")
 
-        return
-
-    # About 3-5 words per subtitle.
-    chunk_size = 4
-
+    # Around 4 words per subtitle
     chunks = []
 
-    for i in range(
-        0,
-        len(words),
-        chunk_size
-    ):
+    current = []
 
-        chunks.append(
-            " ".join(
-                words[i:i + chunk_size]
-            )
-        )
+    for word in words:
+        current.append(word)
 
-    total_characters = sum(
-        len(chunk)
+        if len(current) >= 4:
+            chunks.append(current)
+            current = []
+
+    if current:
+        chunks.append(current)
+
+    total_chars = sum(
+        len(" ".join(chunk))
         for chunk in chunks
     )
 
     current_time = 0.0
 
-    srt_lines = []
+    subtitle_file = OUTPUT_DIR / "subtitles.srt"
 
-    for index, chunk in enumerate(
-        chunks,
-        start=1
-    ):
+    with open(subtitle_file, "w", encoding="utf-8") as f:
 
-        if total_characters > 0:
+        for index, chunk in enumerate(chunks, start=1):
+            text = " ".join(chunk).upper()
 
-            chunk_duration = (
-                len(chunk)
-                / total_characters
-            ) * duration
-
-        else:
+            chars = len(" ".join(chunk))
 
             chunk_duration = (
-                duration / len(chunks)
+                duration * chars / total_chars
             )
 
-        start = current_time
+            start = current_time
+            end = min(
+                duration,
+                current_time + chunk_duration
+            )
 
-        end = min(
-            duration,
-            current_time + chunk_duration
-        )
+            f.write(f"{index}\n")
+            f.write(
+                f"{format_srt_time(start)} --> "
+                f"{format_srt_time(end)}\n"
+            )
+            f.write(text)
+            f.write("\n\n")
 
-        srt_lines.append(
-            str(index)
-        )
+            current_time = end
 
-        srt_lines.append(
-            f"{format_srt_time(start)} --> "
-            f"{format_srt_time(end)}"
-        )
+    print(f"Subtitles created: {subtitle_file}")
 
-        srt_lines.append(
-            chunk.upper()
-        )
-
-        srt_lines.append("")
-
-        current_time = end
-
-    subtitles_file = (
-        OUTPUT_DIR / "subtitles.srt"
-    )
-
-    subtitles_file.write_text(
-        "\n".join(srt_lines),
-        encoding="utf-8"
-    )
-
-    return subtitles_file
-
-
-print()
-print("Creating subtitles...")
-
-subtitles_file = create_subtitles(
-    script,
-    duration
-)
-
-print(
-    f"Subtitles created: {subtitles_file}"
-)
+    return subtitle_file
 
 
 # ============================================================
-# DOWNLOAD PEXELS VIDEO
+# PIXABAY API
 # ============================================================
 
-def search_pexels(query):
+def pixabay_request(endpoint, params):
+    params = dict(params)
 
-    url = (
-        "https://api.pexels.com/v1/videos/search"
-        f"?query={quote(query)}"
-        "&orientation=portrait"
-        "&size=medium"
-        "&per_page=10"
-        "&page=1"
+    params["key"] = PIXABAY_API_KEY
+
+    query = "&".join(
+        f"{quote(str(key))}={quote(str(value))}"
+        for key, value in params.items()
     )
+
+    url = f"{endpoint}?{query}"
 
     request = Request(
         url,
         headers={
-            "Authorization": PEXELS_API_KEY
+            "User-Agent": "Mozilla/5.0"
         }
-    )
-
-    with urlopen(
-        request,
-        timeout=30
-    ) as response:
-
-        data = json.loads(
-            response.read().decode("utf-8")
-        )
-
-    return data.get(
-        "videos",
-        []
-    )
-
-
-def choose_video(videos):
-
-    candidates = []
-
-    for video in videos:
-
-        files = video.get(
-            "video_files",
-            []
-        )
-
-        for file in files:
-
-            width = file.get(
-                "width",
-                0
-            )
-
-            height = file.get(
-                "height",
-                0
-            )
-
-            link = file.get(
-                "link"
-            )
-
-            if not link:
-                continue
-
-            if width < 720:
-                continue
-
-            # Prefer portrait footage.
-            ratio = (
-                height / width
-                if width
-                else 0
-            )
-
-            candidates.append(
-                (
-                    ratio,
-                    width,
-                    height,
-                    link,
-                    video
-                )
-            )
-
-    if not candidates:
-
-        return None
-
-    # Prefer portrait video.
-    portrait = [
-        item
-        for item in candidates
-        if item[0] >= 1.2
-    ]
-
-    if portrait:
-
-        candidates = portrait
-
-    # Prefer reasonably high resolution.
-    candidates.sort(
-        key=lambda item: item[1] * item[2],
-        reverse=True
-    )
-
-    return candidates[0]
-
-
-def download_file(
-    url,
-    destination
-):
-
-    request = Request(
-        url,
-        headers={
-            "User-Agent":
-                "Mozilla/5.0"
-        }
-    )
-
-    with urlopen(
-        request,
-        timeout=60
-    ) as response:
-
-        data = response.read()
-
-    destination.write_bytes(
-        data
-    )
-
-
-# ============================================================
-# SEARCH AND DOWNLOAD SCENES
-# ============================================================
-
-scene_files = []
-attributions = []
-
-print()
-print("Searching Pexels for video scenes...")
-
-
-for index, query in enumerate(
-    scene_queries,
-    start=1
-):
-
-    print()
-    print(
-        f"Searching scene {index}: {query}"
     )
 
     try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read()
 
-        videos = search_pexels(
-            query
+        return json.loads(raw.decode("utf-8"))
+
+    except HTTPError as exc:
+        body = ""
+
+        try:
+            body = exc.read().decode(
+                "utf-8",
+                errors="replace"
+            )
+        except Exception:
+            pass
+
+        print(
+            f"Pixabay HTTP error {exc.code}: {body[:500]}"
         )
 
-        selected = choose_video(
-            videos
-        )
+        return None
 
-        if not selected:
+    except URLError as exc:
+        print(f"Pixabay connection error: {exc}")
 
-            print(
-                "No suitable Pexels video found."
+        return None
+
+    except Exception as exc:
+        print(f"Pixabay request error: {exc}")
+
+        return None
+
+
+def split_queries(scene_query):
+    parts = [
+        clean_text(x)
+        for x in scene_query.split("|")
+        if clean_text(x)
+    ]
+
+    if not parts:
+        parts = [scene_query]
+
+    return parts[:3]
+
+
+# ============================================================
+# PIXABAY VIDEO SEARCH
+# ============================================================
+
+def search_pixabay_video(query):
+    print(f"  Searching Pixabay videos: {query}")
+
+    data = pixabay_request(
+        "https://pixabay.com/api/videos/",
+        {
+            "q": query,
+            "lang": "en",
+            "video_type": "all",
+            "safesearch": "true",
+            "order": "popular",
+            "per_page": 10,
+            "page": 1
+        }
+    )
+
+    if not data:
+        return None
+
+    hits = data.get("hits", [])
+
+    if not hits:
+        print("  No video results.")
+        return None
+
+    candidates = []
+
+    for hit in hits:
+        videos = hit.get("videos", {})
+
+        # Prefer large, then medium, then small
+        for quality in ["large", "medium", "small"]:
+            item = videos.get(quality)
+
+            if not item:
+                continue
+
+            url = item.get("url")
+            width = int(item.get("width") or 0)
+            height = int(item.get("height") or 0)
+            size = int(item.get("size") or 0)
+
+            if not url:
+                continue
+
+            if width < 640 or height < 360:
+                continue
+
+            if size <= 0:
+                continue
+
+            ratio = width / height if height else 0
+
+            # Prefer videos that are not extremely wide.
+            # Landscape is fine because FFmpeg will crop it.
+            crop_penalty = abs(ratio - (9 / 16))
+
+            score = (
+                min(width, 1920) / 100
+                + min(height, 1080) / 100
+                + min(size / 1_000_000, 20)
+                - crop_penalty * 5
             )
 
+            candidates.append({
+                "url": url,
+                "width": width,
+                "height": height,
+                "size": size,
+                "score": score,
+                "page_url": hit.get("pageURL", ""),
+                "user": hit.get("user", ""),
+                "id": hit.get("id")
+            })
+
+            break
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    best = candidates[0]
+
+    print(
+        f"  Video found: "
+        f"{best['width']}x{best['height']} "
+        f"by {best['user']}"
+    )
+
+    return best
+
+
+# ============================================================
+# PIXABAY IMAGE SEARCH
+# ============================================================
+
+def search_pixabay_image(query):
+    print(f"  Searching Pixabay images: {query}")
+
+    data = pixabay_request(
+        "https://pixabay.com/api/",
+        {
+            "q": query,
+            "lang": "en",
+            "image_type": "all",
+            "orientation": "all",
+            "safesearch": "true",
+            "order": "popular",
+            "per_page": 10,
+            "page": 1
+        }
+    )
+
+    if not data:
+        return None
+
+    hits = data.get("hits", [])
+
+    if not hits:
+        print("  No image results.")
+        return None
+
+    candidates = []
+
+    for hit in hits:
+        url = (
+            hit.get("largeImageURL")
+            or hit.get("fullHDURL")
+            or hit.get("webformatURL")
+        )
+
+        if not url:
             continue
 
-        (
-            ratio,
-            width,
-            height,
-            video_url,
-            video_info
-        ) = selected
+        width = int(hit.get("imageWidth") or 0)
+        height = int(hit.get("imageHeight") or 0)
 
-        scene_file = (
-            SCENES_DIR
-            / f"scene_{index:02d}.mp4"
+        if width < 640 or height < 360:
+            continue
+
+        ratio = width / height if height else 0
+
+        score = (
+            min(width, 1920) / 100
+            + min(height, 1080) / 100
+            - abs(ratio - (9 / 16)) * 5
+            + min(int(hit.get("likes") or 0), 1000) / 1000
         )
 
-        print(
-            f"Downloading Pexels video "
-            f"{video_info.get('id')}"
-        )
+        candidates.append({
+            "url": url,
+            "width": width,
+            "height": height,
+            "score": score,
+            "page_url": hit.get("pageURL", ""),
+            "user": hit.get("user", ""),
+            "id": hit.get("id")
+        })
 
-        download_file(
-            video_url,
-            scene_file
-        )
+    if not candidates:
+        return None
 
-        scene_files.append(
-            scene_file
-        )
-
-        creator = video_info.get(
-            "user",
-            {}
-        )
-
-        creator_name = creator.get(
-            "name",
-            "Unknown"
-        )
-
-        creator_url = creator.get(
-            "url",
-            ""
-        )
-
-        pexels_url = video_info.get(
-            "url",
-            "https://www.pexels.com/"
-        )
-
-        attributions.append(
-            f"Scene {index}: "
-            f"Video by {creator_name} on Pexels\n"
-            f"{pexels_url}\n"
-            f"Creator: {creator_url}"
-        )
-
-        print(
-            f"Scene {index} downloaded."
-        )
-
-    except Exception as error:
-
-        print(
-            f"Scene {index} failed: {error}"
-        )
-
-
-# ============================================================
-# REQUIRE AT LEAST ONE VIDEO
-# ============================================================
-
-if not scene_files:
-
-    raise RuntimeError(
-        "Pexels did not provide any usable videos."
+    candidates.sort(
+        key=lambda x: x["score"],
+        reverse=True
     )
 
+    best = candidates[0]
 
-print()
-print(
-    f"Downloaded {len(scene_files)} "
-    f"video scenes."
-)
+    print(
+        f"  Image found: "
+        f"{best['width']}x{best['height']} "
+        f"by {best['user']}"
+    )
 
-
-# ============================================================
-# SAVE ATTRIBUTION
-# ============================================================
-
-attribution_file = (
-    OUTPUT_DIR / "pexels_attribution.txt"
-)
-
-attribution_text = (
-    "Visuals provided by Pexels.\n"
-    "https://www.pexels.com/\n\n"
-    + "\n\n".join(attributions)
-)
-
-attribution_file.write_text(
-    attribution_text,
-    encoding="utf-8"
-)
+    return best
 
 
 # ============================================================
-# CREATE NORMALIZED SCENE VIDEOS
+# GENERIC BACKGROUND
 # ============================================================
 
-scene_duration = duration / len(
-    scene_files
-)
+def create_fallback_background(index, duration):
+    """
+    Last-resort background.
 
-normalized_files = []
+    This ensures that the workflow can still produce a video
+    even when Pixabay has no usable media for a scene.
+    """
+
+    output = SCENES_DIR / f"scene_{index:02d}_fallback.mp4"
+
+    # Slightly different movement for every scene.
+    zoom_values = [
+        "zoompan=z='min(zoom+0.0007,1.12)':d=1",
+        "zoompan=z='min(zoom+0.0005,1.10)':d=1",
+        "zoompan=z='max(zoom-0.0005,1.00)':d=1",
+        "zoompan=z='min(zoom+0.0006,1.11)':d=1",
+        "zoompan=z='max(zoom-0.0004,1.00)':d=1",
+        "zoompan=z='min(zoom+0.0004,1.09)':d=1"
+    ]
+
+    zoom = zoom_values[(index - 1) % len(zoom_values)]
+
+    filter_complex = (
+        "color=c=0x101820:s=1080x1920:r=30,"
+        "format=yuv420p,"
+        f"{zoom}:s=1080x1920,"
+        "setsar=1"
+    )
+
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=0x101820:s=1080x1920:r=30",
+        "-t",
+        str(duration),
+        "-vf",
+        "format=yuv420p,"
+        "drawbox=x=0:y=0:w=iw:h=ih:"
+        "color=black@0.12:t=fill",
+        "-r",
+        "30",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "25",
+        str(output)
+    ])
+
+    return output
 
 
-print()
-print("Preparing vertical scenes...")
+# ============================================================
+# NORMALIZE VIDEO
+# ============================================================
+
+def normalize_video(input_file, output_file, duration, index):
+    print(
+        f"  Normalizing scene {index}: "
+        f"{duration:.2f}s"
+    )
+
+    # Crop landscape footage into 9:16.
+    # Add a tiny zoom so static-looking footage feels less flat.
+    filter_complex = (
+        "scale=1080:1920:"
+        "force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        "setsar=1,"
+        "fps=30,"
+        "format=yuv420p"
+    )
+
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-stream_loop",
+        "-1",
+        "-i",
+        str(input_file),
+        "-t",
+        str(duration),
+        "-vf",
+        filter_complex,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        str(output_file)
+    ])
+
+    return output_file
 
 
-for index, source in enumerate(
-    scene_files,
-    start=1
+# ============================================================
+# CREATE IMAGE SCENE
+# ============================================================
+
+def create_image_scene(
+    image_file,
+    output_file,
+    duration,
+    index
 ):
-
-    normalized = (
-        SCENES_DIR
-        / f"normalized_{index:02d}.mp4"
+    print(
+        f"  Creating animated image scene {index}..."
     )
 
-    # Scale and crop every video to 1080x1920.
-    #
-    # The slight zoom is created by making
-    # the source a little larger than the
-    # final frame before cropping.
+    # Different movement direction for each scene.
+    expressions = [
+        "zoompan=z='min(zoom+0.0010,1.14)':"
+        "x='iw/2-(iw/zoom/2)':"
+        "y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920",
+
+        "zoompan=z='min(zoom+0.0008,1.12)':"
+        "x='iw/2-(iw/zoom/2)':"
+        "y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920",
+
+        "zoompan=z='max(zoom-0.0005,1.0)':"
+        "x='iw/2-(iw/zoom/2)':"
+        "y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920",
+
+        "zoompan=z='min(zoom+0.0007,1.11)':"
+        "x='iw/2-(iw/zoom/2)':"
+        "y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920",
+
+        "zoompan=z='max(zoom-0.0004,1.0)':"
+        "x='iw/2-(iw/zoom/2)':"
+        "y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920",
+
+        "zoompan=z='min(zoom+0.0006,1.10)':"
+        "x='iw/2-(iw/zoom/2)':"
+        "y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920"
+    ]
+
+    expression = expressions[(index - 1) % len(expressions)]
 
     vf = (
         "scale=1080:1920:"
         "force_original_aspect_ratio=increase,"
         "crop=1080:1920,"
         "setsar=1,"
-        "fps=30"
+        f"{expression},"
+        "fps=30,"
+        "format=yuv420p"
     )
 
-    command = [
+    # Number of frames needed.
+    frames = max(1, int(duration * 30))
+
+    run_command([
         "ffmpeg",
         "-y",
-
-        "-stream_loop",
-        "-1",
-
+        "-loop",
+        "1",
         "-i",
-        str(source),
-
-        "-t",
-        str(scene_duration),
-
+        str(image_file),
         "-vf",
         vf,
-
+        "-frames:v",
+        str(frames),
         "-an",
-
         "-c:v",
         "libx264",
-
         "-preset",
         "veryfast",
-
         "-crf",
         "24",
-
-        "-pix_fmt",
-        "yuv420p",
-
-        str(normalized)
-    ]
-
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-
-        print(
-            result.stderr
-        )
-
-        continue
-
-    normalized_files.append(
-        normalized
-    )
-
-    print(
-        f"Prepared scene {index}."
-    )
-
-
-if not normalized_files:
-
-    raise RuntimeError(
-        "Could not normalize any scene videos."
-    )
-
-
-# ============================================================
-# CREATE CONCAT FILE
-# ============================================================
-
-concat_file = (
-    SCENES_DIR / "concat.txt"
-)
-
-with concat_file.open(
-    "w",
-    encoding="utf-8"
-) as file:
-
-    for scene in normalized_files:
-
-        absolute_path = (
-            scene.resolve()
-        )
-
-        safe_path = str(
-            absolute_path
-        ).replace(
-            "'",
-            "'\\''"
-        )
-
-        file.write(
-            f"file '{safe_path}'\n"
-        )
-
-
-# ============================================================
-# CONCAT VIDEO SCENES
-# ============================================================
-
-background_video = (
-    OUTPUT_DIR
-    / "background.mp4"
-)
-
-print()
-print("Combining video scenes...")
-
-
-concat_command = [
-    "ffmpeg",
-    "-y",
-
-    "-f",
-    "concat",
-
-    "-safe",
-    "0",
-
-    "-i",
-    str(concat_file),
-
-    "-c",
-    "copy",
-
-    str(background_video)
-]
-
-
-concat_result = subprocess.run(
-    concat_command,
-    capture_output=True,
-    text=True
-)
-
-if concat_result.returncode != 0:
-
-    print(
-        concat_result.stderr
-    )
-
-    raise RuntimeError(
-        "Could not combine scene videos."
-    )
-
-
-# ============================================================
-# FINAL VIDEO
-# ============================================================
-
-video_file = (
-    OUTPUT_DIR / "video.mp4"
-)
-
-
-# Escape subtitles path for FFmpeg filter.
-subtitle_path = str(
-    subtitles_file.resolve()
-)
-
-subtitle_path = subtitle_path.replace(
-    "\\",
-    "/"
-)
-
-subtitle_path = subtitle_path.replace(
-    ":",
-    r"\:"
-)
-
-
-# Subtitle styling.
-#
-# Large white text,
-# black outline,
-# centered near bottom.
-#
-# Alignment 2 = bottom center.
-
-subtitle_filter = (
-    "subtitles="
-    + subtitle_path
-    + ":"
-    "force_style="
-    "'FontName=DejaVu Sans,"
-    "FontSize=18,"
-    "Bold=1,"
-    "PrimaryColour=&H00FFFFFF,"
-    "OutlineColour=&H00000000,"
-    "BorderStyle=1,"
-    "Outline=4,"
-    "Shadow=1,"
-    "Alignment=2,"
-    "MarginV=220'"
-)
-
-
-# ============================================================
-# FINAL FFMPEG
-# ============================================================
-
-print()
-print(
-    "Creating final YouTube Short..."
-)
-
-
-final_command = [
-    "ffmpeg",
-    "-y",
-
-    "-i",
-    str(background_video),
-
-    "-i",
-    str(audio_file),
-
-    "-vf",
-    subtitle_filter,
-
-    "-map",
-    "0:v:0",
-
-    "-map",
-    "1:a:0",
-
-    "-t",
-    str(duration),
-
-    "-c:v",
-    "libx264",
-
-    "-preset",
-    "medium",
-
-    "-crf",
-    "22",
-
-    "-c:a",
-    "aac",
-
-    "-b:a",
-    "192k",
-
-    "-pix_fmt",
-    "yuv420p",
-
-    "-r",
-    "30",
-
-    "-shortest",
-
-    str(video_file)
-]
-
-
-final_result = subprocess.run(
-    final_command,
-    capture_output=True,
-    text=True
-)
-
-
-if final_result.returncode != 0:
-
-    print()
-    print(
-        "FFmpeg final output:"
-    )
-
-    print(
-        final_result.stderr
-    )
-
-    raise RuntimeError(
-        "FFmpeg failed to create final video."
-    )
-
-
-# ============================================================
-# VERIFY
-# ============================================================
-
-if not video_file.exists():
-
-    raise RuntimeError(
-        "video.mp4 was not created."
-    )
-
-
-video_size = (
-    video_file.stat().st_size
-)
-
-
-if video_size < 10000:
-
-    raise RuntimeError(
-        "Generated video appears invalid."
-    )
-
-
-# ============================================================
-# DONE
-# ============================================================
-
-print()
-print("======================================")
-print("      YOUTUBE SHORT GENERATED")
-print("======================================")
-
-print(
-    f"Title:       {title}"
-)
-
-print(
-    f"Duration:    {duration:.2f} seconds"
-)
-
-print(
-    "Resolution:  1080x1920"
-)
-
-print(
-    f"Scenes:      {len(normalized_files)}"
-)
-
-print(
-    f"Video:       {video_file}"
-)
-
-print(
-    f"Subtitles:   {subtitles_file}"
-)
-
-print(
-    f"Attribution: {attribution_file}"
-)
-
-print()
-print("======================================")
-print("NARRATION")
-print("======================================")
-
-print(script)
-
-print()
-print("======================================")
-print("DONE")
-print("======================================")
+ 
