@@ -27,7 +27,7 @@ def get_next_publish_time():
     now = datetime.now(timezone)
 
     publish_hour = int(os.environ.get("YOUTUBE_PUBLISH_HOUR", "23"))
-    publish_minute = int(os.environ.get("YOUTUBE_PUBLISH_MINUTE", "30"))
+    publish_minute = int(os.environ.get("YOUTUBE_PUBLISH_MINUTE", "50"))
 
     publish_time = now.replace(
         hour=publish_hour,
