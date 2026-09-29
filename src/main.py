@@ -867,4 +867,555 @@ def create_image_scene(
     ])
 
     return output_file
- 
+ # ============================================================
+# CREATE SCENE
+# ============================================================
+
+def create_scene(scene_query, index, duration):
+    print()
+    print("=" * 60)
+    print(f"CREATING SCENE {index}")
+    print("=" * 60)
+
+    queries = split_queries(scene_query)
+
+    # --------------------------------------------------------
+    # Try Pixabay videos
+    # --------------------------------------------------------
+
+    for query in queries:
+        result = search_pixabay_video(query)
+
+        if not result:
+            continue
+
+        input_file = (
+            SCENES_DIR /
+            f"scene_{index:02d}_source.mp4"
+        )
+
+        output_file = (
+            SCENES_DIR /
+            f"scene_{index:02d}.mp4"
+        )
+
+        try:
+            download_file(
+                result["url"],
+                input_file
+            )
+
+            normalize_video(
+                input_file,
+                output_file,
+                duration,
+                index
+            )
+
+            return output_file, {
+                "type": "video",
+                "query": query,
+                "page_url": result.get(
+                    "page_url",
+                    ""
+                ),
+                "user": result.get(
+                    "user",
+                    ""
+                ),
+                "id": result.get(
+                    "id",
+                    ""
+                )
+            }
+
+        except Exception as exc:
+            print(
+                f"  Video failed for query "
+                f"'{query}': {exc}"
+            )
+
+    # --------------------------------------------------------
+    # Try Pixabay images
+    # --------------------------------------------------------
+
+    for query in queries:
+        result = search_pixabay_image(query)
+
+        if not result:
+            continue
+
+        input_file = (
+            SCENES_DIR /
+            f"scene_{index:02d}_source.jpg"
+        )
+
+        output_file = (
+            SCENES_DIR /
+            f"scene_{index:02d}.mp4"
+        )
+
+        try:
+            download_file(
+                result["url"],
+                input_file
+            )
+
+            create_image_scene(
+                input_file,
+                output_file,
+                duration,
+                index
+            )
+
+            return output_file, {
+                "type": "image",
+                "query": query,
+                "page_url": result.get(
+                    "page_url",
+                    ""
+                ),
+                "user": result.get(
+                    "user",
+                    ""
+                ),
+                "id": result.get(
+                    "id",
+                    ""
+                )
+            }
+
+        except Exception as exc:
+            print(
+                f"  Image failed for query "
+                f"'{query}': {exc}"
+            )
+
+    # --------------------------------------------------------
+    # Last resort
+    # --------------------------------------------------------
+
+    print(
+        f"  No usable Pixabay media "
+        f"for scene {index}."
+    )
+
+    output_file = create_fallback_background(
+        index,
+        duration
+    )
+
+    return output_file, {
+        "type": "fallback",
+        "query": "",
+        "page_url": "",
+        "user": "",
+        "id": ""
+    }
+
+
+# ============================================================
+# CONCATENATE SCENES
+# ============================================================
+
+def concatenate_scenes(scene_files):
+    print()
+    print("Concatenating scenes...")
+
+    concat_file = OUTPUT_DIR / "concat.txt"
+
+    with open(
+        concat_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        for scene in scene_files:
+            absolute_path = Path(scene).resolve()
+
+            escaped = str(
+                absolute_path
+            ).replace(
+                "'",
+                "'\\''"
+            )
+
+            f.write(
+                f"file '{escaped}'\n"
+            )
+
+    output = (
+        OUTPUT_DIR /
+        "combined_video.mp4"
+    )
+
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_file),
+        "-c",
+        "copy",
+        str(output)
+    ])
+
+    return output
+
+
+# ============================================================
+# CREATE FINAL VIDEO
+# ============================================================
+
+def create_final_video(
+    video_file,
+    voice_file,
+    subtitle_file
+):
+    print()
+    print("Creating final video...")
+
+    output = OUTPUT_DIR / "video.mp4"
+
+    subtitle_path = str(
+        subtitle_file.resolve()
+    )
+
+    subtitle_path = subtitle_path.replace(
+        "\\",
+        "/"
+    )
+
+    subtitle_path = subtitle_path.replace(
+        ":",
+        "\\:"
+    )
+
+    subtitle_filter = (
+        f"subtitles='{subtitle_path}':"
+        "force_style="
+        "'FontName=DejaVu Sans,"
+        "FontSize=18,"
+        "Bold=1,"
+        "PrimaryColour=&H00FFFFFF,"
+        "OutlineColour=&H00000000,"
+        "BorderStyle=1,"
+        "Outline=3,"
+        "Shadow=1,"
+        "Alignment=2,"
+        "MarginV=220'"
+    )
+
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_file),
+        "-i",
+        str(voice_file),
+        "-vf",
+        subtitle_filter,
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "22",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-shortest",
+        str(output)
+    ])
+
+    return output
+
+
+# ============================================================
+# PIXABAY ATTRIBUTION
+# ============================================================
+
+def save_attribution(attributions):
+    output = (
+        OUTPUT_DIR /
+        "pixabay_attribution.txt"
+    )
+
+    with open(
+        output,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(
+            "Pixabay media used by the "
+            "automated video generator\n"
+        )
+
+        f.write("=" * 60)
+        f.write("\n\n")
+
+        for item in attributions:
+            f.write(
+                f"Scene {item['scene']}\n"
+            )
+
+            f.write(
+                f"Type: {item['type']}\n"
+            )
+
+            f.write(
+                f"Search query: "
+                f"{item['query']}\n"
+            )
+
+            f.write(
+                f"Creator: "
+                f"{item['user']}\n"
+            )
+
+            f.write(
+                f"Pixabay page: "
+                f"{item['page_url']}\n"
+            )
+
+            f.write(
+                f"Media ID: "
+                f"{item['id']}\n"
+            )
+
+            f.write("\n")
+
+    print(
+        f"Pixabay attribution saved: "
+        f"{output}"
+    )
+
+    return output
+
+
+# ============================================================
+# CLEAN OLD FILES
+# ============================================================
+
+def clean_old_files():
+    print(
+        "Cleaning previous generated files..."
+    )
+
+    for file in SCENES_DIR.iterdir():
+
+        if file.is_file():
+
+            try:
+                file.unlink()
+
+            except Exception:
+                pass
+
+    files_to_remove = [
+        "video.mp4",
+        "combined_video.mp4",
+        "concat.txt",
+        "voice.mp3",
+        "subtitles.srt",
+        "script.txt",
+        "narration.txt",
+        "metadata.txt",
+        "pixabay_attribution.txt"
+    ]
+
+    for filename in files_to_remove:
+
+        path = OUTPUT_DIR / filename
+
+        if path.exists():
+
+            try:
+                path.unlink()
+
+            except Exception:
+                pass
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    print()
+    print("=" * 70)
+    print("AI YOUTUBE SHORT GENERATOR")
+    print("=" * 70)
+    print()
+
+    clean_old_files()
+
+    # --------------------------------------------------------
+    # FFmpeg
+    # --------------------------------------------------------
+
+    check_ffmpeg()
+
+    # --------------------------------------------------------
+    # Gemini
+    # --------------------------------------------------------
+
+    raw_response = generate_content()
+
+    data = parse_gemini(
+        raw_response
+    )
+
+    save_script(
+        data,
+        raw_response
+    )
+
+    print()
+    print("TITLE:")
+    print(data["title"])
+
+    print()
+    print("SCRIPT:")
+    print(data["script"])
+
+    # --------------------------------------------------------
+    # Voice
+    # --------------------------------------------------------
+
+    import asyncio
+
+    voice_file = asyncio.run(
+        generate_voice(
+            data["script"]
+        )
+    )
+
+    duration = get_audio_duration(
+        voice_file
+    )
+
+    print(
+        f"Narration duration: "
+        f"{duration:.2f} seconds"
+    )
+
+    # --------------------------------------------------------
+    # Subtitles
+    # --------------------------------------------------------
+
+    subtitle_file = create_subtitles(
+        data["script"],
+        duration
+    )
+
+    # --------------------------------------------------------
+    # Scenes
+    # --------------------------------------------------------
+
+    scene_duration = duration / 6
+
+    scene_files = []
+    attributions = []
+
+    for i in range(1, 7):
+
+        scene_file, attribution = (
+            create_scene(
+                data["scenes"][i],
+                i,
+                scene_duration
+            )
+        )
+
+        scene_files.append(
+            scene_file
+        )
+
+        attributions.append({
+            "scene": i,
+            **attribution
+        })
+
+    # --------------------------------------------------------
+    # Attribution
+    # --------------------------------------------------------
+
+    save_attribution(
+        attributions
+    )
+
+    # --------------------------------------------------------
+    # Combine
+    # --------------------------------------------------------
+
+    combined_video = (
+        concatenate_scenes(
+            scene_files
+        )
+    )
+
+    # --------------------------------------------------------
+    # Final video
+    # --------------------------------------------------------
+
+    final_video = (
+        create_final_video(
+            combined_video,
+            voice_file,
+            subtitle_file
+        )
+    )
+
+    # --------------------------------------------------------
+    # Complete
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("VIDEO GENERATION COMPLETE")
+    print("=" * 70)
+    print()
+
+    print(
+        f"Final video: "
+        f"{final_video}"
+    )
+
+    print(
+        f"File size: "
+        f"{final_video.stat().st_size / 1_000_000:.2f} MB"
+    )
+
+    print()
+    print("Generated files:")
+
+    for file in sorted(
+        OUTPUT_DIR.iterdir()
+    ):
+
+        if file.is_file():
+
+            print(
+                f" - {file}"
+            )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    main()
