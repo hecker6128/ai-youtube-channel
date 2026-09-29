@@ -171,11 +171,26 @@ jobs:
           PY
 
       - name: Generate script, visuals, voice and video
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-        run: |
-          python src/main.py
+  env:
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+  run: |
+    echo "=== Python version ==="
+    python --version
+
+    echo "=== main.py location ==="
+    pwd
+    ls -lh src/main.py
+
+    echo "=== main.py syntax check ==="
+    python -m py_compile src/main.py
+
+    echo "=== Starting main.py ==="
+    python -u src/main.py
+
+    echo "=== main.py finished ==="
+    echo "=== Output directory ==="
+    ls -lah output/ || true
 
       - name: Upload generated files
         uses: actions/upload-artifact@v4
