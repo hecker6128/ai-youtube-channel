@@ -1,2 +1,3 @@
 google-genai
 edge-tts
+requests
