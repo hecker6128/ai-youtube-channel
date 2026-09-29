@@ -15,59 +15,167 @@ jobs:
 
     steps:
 
-      # ==========================================
-      # CHECKOUT
-      # ==========================================
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # ==========================================
-      # PYTHON
-      # ==========================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-
-      # ==========================================
-      # FFMPEG
-      # ==========================================
-
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-
-
-      # ==========================================
-      # PYTHON DEPENDENCIES
-      # ==========================================
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Test Pixabay API
+        env:
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.parse
+          import urllib.request
 
-      # ==========================================
-      # GENERATE SHORT
-      # ==========================================
+          key = os.environ.get("PIXABAY_API_KEY")
+
+          if not key:
+              raise RuntimeError(
+                  "PIXABAY_API_KEY GitHub Secret is missing."
+              )
+
+          print("Testing Pixabay API...")
+
+          params = urllib.parse.urlencode({
+              "key": key,
+              "q": "history",
+              "per_page": 1,
+              "safesearch": "true"
+          })
+
+          url = (
+              "https://pixabay.com/api/"
+              "?"
+              + params
+          )
+
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "User-Agent": "Mozilla/5.0"
+              }
+          )
+
+          try:
+              with urllib.request.urlopen(
+                  request,
+                  timeout=30
+              ) as response:
+
+                  print(
+                      "Pixabay HTTP status:",
+                      response.status
+                  )
+
+                  data = json.loads(
+                      response.read().decode(
+                          "utf-8"
+                      )
+                  )
+
+                  print(
+                      "Image API total hits:",
+                      data.get("totalHits")
+                  )
+
+          except Exception as exc:
+              print(
+                  "Pixabay API test FAILED:"
+              )
+              print(repr(exc))
+              raise
+
+          print("Pixabay API test passed.")
+          PY
+
+      - name: Test Pixabay Video API
+        env:
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.parse
+          import urllib.request
+
+          key = os.environ["PIXABAY_API_KEY"]
+
+          params = urllib.parse.urlencode({
+              "key": key,
+              "q": "history",
+              "per_page": 1,
+              "safesearch": "true"
+          })
+
+          url = (
+              "https://pixabay.com/api/videos/"
+              "?"
+              + params
+          )
+
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "User-Agent": "Mozilla/5.0"
+              }
+          )
+
+          try:
+              with urllib.request.urlopen(
+                  request,
+                  timeout=30
+              ) as response:
+
+                  print(
+                      "Pixabay Video HTTP status:",
+                      response.status
+                  )
+
+                  data = json.loads(
+                      response.read().decode(
+                          "utf-8"
+                      )
+                  )
+
+                  print(
+                      "Video API total hits:",
+                      data.get("totalHits")
+                  )
+
+          except Exception as exc:
+              print(
+                  "Pixabay Video API test FAILED:"
+              )
+              print(repr(exc))
+              raise
+
+          print(
+              "Pixabay Video API test passed."
+          )
+          PY
 
       - name: Generate script, visuals, voice and video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           python src/main.py
-
-
-      # ==========================================
-      # UPLOAD RESULT
-      # ==========================================
 
       - name: Upload generated files
         uses: actions/upload-artifact@v4
