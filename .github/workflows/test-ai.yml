@@ -185,11 +185,15 @@ jobs:
       # GENERATE VIDEO
       # ==========================================
 
-      - name: Generate script, visuals, voice and video
+      - name: Generate script, visuals, voice, video and YouTube upload
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_PUBLISH_HOUR: "23"
+          YOUTUBE_PUBLISH_MINUTE: "50"
         run: |
           python -u src/main.py
 
