@@ -143,7 +143,6 @@ else:
     title = "History Fact"
 
 
-# Remove characters that can cause problems in FFmpeg text
 title = re.sub(r"[\r\n]+", " ", title)
 title = title.replace(":", " - ")
 
@@ -163,7 +162,6 @@ if not match:
     )
 
 script = match.group(1).strip()
-
 script = script.replace("```", "").strip()
 
 
@@ -248,7 +246,7 @@ print(f"Audio duration: {duration:.2f} seconds")
 
 
 # =========================
-# LIMIT / VALIDATE DURATION
+# VALIDATE DURATION
 # =========================
 
 if duration < 5:
@@ -263,25 +261,26 @@ if duration > 90:
 
 
 # =========================
-# CREATE VIDEO
+# ESCAPE TITLE FOR FFMPEG
 # =========================
 
-video_file = output_dir / "video.mp4"
+# Escape characters that have special meaning
+# inside FFmpeg drawtext text values.
 
-print("Creating vertical YouTube Short...")
+ffmpeg_title = title
+
+ffmpeg_title = ffmpeg_title.replace("\\", r"\\")
+ffmpeg_title = ffmpeg_title.replace("'", r"\'")
+ffmpeg_title = ffmpeg_title.replace(":", r"\:")
+ffmpeg_title = ffmpeg_title.replace("%", r"\%")
 
 
-# FFmpeg filter:
-#
-# - 1080x1920 vertical video
-# - dark animated background
-# - subtle moving gradient
-# - title at top
-# - audio from Edge TTS
-#
-# The background is generated entirely by FFmpeg,
-# so no external images are required.
+# =========================
+# FFMPEG FILTER
+# =========================
 
+# The duration is NOT placed inside the filter.
+# FFmpeg receives it separately using -t.
 
 filter_complex = (
     "color=c=0x080808:s=1080x1920:r=30,"
@@ -300,7 +299,7 @@ filter_complex = (
     "x=(w-text_w)/2:"
     "y=500:"
     "text='"
-    + title.replace("'", r"'\''")
+    + ffmpeg_title
     + "'"
     ":enable='between(t,0,8)':"
     "box=1:"
@@ -308,6 +307,14 @@ filter_complex = (
     "boxborderw=25"
 )
 
+
+# =========================
+# OUTPUT VIDEO
+# =========================
+
+video_file = output_dir / "video.mp4"
+
+print("Creating vertical YouTube Short...")
 
 command = [
     "ffmpeg",
@@ -317,18 +324,23 @@ command = [
     "-f",
     "lavfi",
     "-i",
-    f"{filter_complex}:d={duration}",
+    filter_complex,
 
     # Audio
     "-i",
     str(audio_file),
 
-    # Video settings
+    # Limit generated video to audio duration
+    "-t",
+    str(duration),
+
+    # Map video and audio
     "-map",
     "0:v:0",
     "-map",
     "1:a:0",
 
+    # Video
     "-c:v",
     "libx264",
     "-preset",
@@ -336,17 +348,21 @@ command = [
     "-crf",
     "23",
 
+    # Audio
     "-c:a",
     "aac",
     "-b:a",
     "192k",
 
+    # YouTube-compatible pixel format
     "-pix_fmt",
     "yuv420p",
 
+    # 30 FPS
     "-r",
     "30",
 
+    # Stop when the shortest input ends
     "-shortest",
 
     str(video_file)
@@ -412,8 +428,8 @@ print("================================")
 
 print("Resolution: 1080x1920")
 print("Format:     MP4")
-print("Audio:      AAC")
 print("Video:      H.264")
+print("Audio:      AAC")
 print(f"Duration:   {duration:.2f} seconds")
 
 print()
