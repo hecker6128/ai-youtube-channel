@@ -15,9 +15,17 @@ jobs:
 
     steps:
 
+      # ==========================================
+      # CHECKOUT
+      # ==========================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
+
+      # ==========================================
+      # PYTHON
+      # ==========================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -25,11 +33,19 @@ jobs:
           python-version: "3.12"
 
 
+      # ==========================================
+      # FFMPEG
+      # ==========================================
+
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
+
+      # ==========================================
+      # PYTHON DEPENDENCIES
+      # ==========================================
 
       - name: Install dependencies
         run: |
@@ -37,12 +53,21 @@ jobs:
           pip install -r requirements.txt
 
 
-      - name: Generate script, voice and video
+      # ==========================================
+      # GENERATE SHORT
+      # ==========================================
+
+      - name: Generate script, visuals, voice and video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: |
           python src/main.py
 
+
+      # ==========================================
+      # UPLOAD RESULT
+      # ==========================================
 
       - name: Upload generated files
         uses: actions/upload-artifact@v4
