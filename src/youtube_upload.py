@@ -26,8 +26,8 @@ def get_next_publish_time():
     timezone = ZoneInfo("Europe/Sarajevo")
     now = datetime.now(timezone)
 
-    publish_hour = int(os.environ.get("YOUTUBE_PUBLISH_HOUR", "20"))
-    publish_minute = int(os.environ.get("YOUTUBE_PUBLISH_MINUTE", "0"))
+    publish_hour = int(os.environ.get("YOUTUBE_PUBLISH_HOUR", "23"))
+    publish_minute = int(os.environ.get("YOUTUBE_PUBLISH_MINUTE", "30"))
 
     publish_time = now.replace(
         hour=publish_hour,
