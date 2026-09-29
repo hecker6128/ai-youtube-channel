@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 
 from google import genai
 import edge_tts
+from youtube_upload import upload_video
 
 
 # ============================================================
@@ -1580,6 +1581,34 @@ def main():
         f"Topic history: {TOPIC_HISTORY_FILE}"
     )
     print("==============================\n")
+    # --------------------------------------------------------
+    # Upload and schedule YouTube video.
+    # --------------------------------------------------------
+
+    print("\n==============================")
+    print("UPLOADING TO YOUTUBE")
+    print("==============================\n")
+
+    tags = [
+        tag.strip()
+        for tag in data["tags"].split(",")
+        if tag.strip()
+    ]
+
+    youtube_description = data["description"].strip()
+
+    if not youtube_description:
+        youtube_description = (
+            "An interesting real historical event explained "
+            "in a short and engaging video."
+        )
+
+    upload_video(
+        video_path=final_video,
+        title=data["title"],
+        description=youtube_description,
+        tags=tags
+    )
 
 
 # ============================================================
