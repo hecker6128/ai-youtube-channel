@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from pathlib import Path
 
 from google import genai
@@ -13,6 +14,8 @@ import edge_tts
 API_KEY = os.environ["GEMINI_API_KEY"]
 
 client = genai.Client(api_key=API_KEY)
+
+MODEL = "gemini-3.8-flash"
 
 prompt = """
 You are a scriptwriter for a YouTube Shorts channel.
@@ -55,15 +58,51 @@ Rules:
 - write the SCRIPT as one continuous narration
 """
 
-response = client.models.generate_content(
-    model="gemini-3.8-flash",
-    contents=prompt
-)
 
-text = (response.text or "").strip()
+# =========================
+# GENERATE WITH RETRIES
+# =========================
 
-if not text:
-    raise RuntimeError("Gemini returned an empty response.")
+MAX_ATTEMPTS = 5
+
+response = None
+
+for attempt in range(1, MAX_ATTEMPTS + 1):
+
+    print(f"Gemini attempt {attempt}/{MAX_ATTEMPTS}...")
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt
+        )
+
+        if response and response.text:
+            print("Gemini response received.")
+            break
+
+    except Exception as error:
+
+        print(f"Gemini request failed: {error}")
+
+        if attempt == MAX_ATTEMPTS:
+            raise RuntimeError(
+                "Gemini could not generate the script after "
+                f"{MAX_ATTEMPTS} attempts."
+            )
+
+        # Increasing delay:
+        # 15s, 30s, 45s, 60s
+        wait_time = attempt * 15
+
+        print(
+            f"Waiting {wait_time} seconds before retry..."
+        )
+
+        time.sleep(wait_time)
+
+
+text = response.text.strip()
 
 
 # =========================
@@ -75,7 +114,7 @@ output_dir.mkdir(exist_ok=True)
 
 
 # =========================
-# SAVE COMPLETE GEMINI RESULT
+# SAVE COMPLETE RESPONSE
 # =========================
 
 script_file = output_dir / "script.txt"
@@ -90,30 +129,23 @@ script_file.write_text(
 # EXTRACT SCRIPT
 # =========================
 
-def extract_script(text):
-    match = re.search(
-        r"(?is)SCRIPT:\s*(.*?)(?=\n\s*DESCRIPTION:|\Z)",
-        text
+match = re.search(
+    r"(?is)SCRIPT:\s*(.*?)(?=\n\s*DESCRIPTION:|\Z)",
+    text
+)
+
+if not match:
+    raise RuntimeError(
+        "Could not find SCRIPT section in Gemini response."
     )
 
-    if not match:
-        raise RuntimeError(
-            "Could not find SCRIPT section in Gemini response."
-        )
+script = match.group(1).strip()
 
-    return match.group(1).strip()
-
-
-script = extract_script(text)
-
-
-# Remove accidental markdown characters
-script = script.replace("```", "")
-script = script.strip()
+script = script.replace("```", "").strip()
 
 
 # =========================
-# SAVE NARRATION TEXT
+# SAVE NARRATION
 # =========================
 
 narration_file = output_dir / "narration.txt"
@@ -132,6 +164,8 @@ VOICE = "en-US-GuyNeural"
 
 audio_file = output_dir / "voice.mp3"
 
+print("Generating voice...")
+
 communicate = edge_tts.Communicate(
     script,
     VOICE
@@ -143,33 +177,24 @@ communicate.save_sync(
 
 
 # =========================
-# LOG
+# FINISHED
 # =========================
 
 print()
 print("================================")
 print("VIDEO CONTENT GENERATED")
 print("================================")
-print()
 
-print(f"Full Gemini response:")
-print(script_file)
-
-print()
-
-print(f"Narration:")
-print(narration_file)
-
-print()
-
-print(f"Voice:")
-print(audio_file)
+print(f"Full script: {script_file}")
+print(f"Narration:   {narration_file}")
+print(f"Voice:       {audio_file}")
 
 print()
 print("================================")
 print("NARRATION")
 print("================================")
 print(script)
+
 print()
 print("================================")
 print("DONE")
