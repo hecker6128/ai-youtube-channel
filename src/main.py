@@ -861,4 +861,10 @@ def create_image_scene(
         "veryfast",
         "-crf",
         "24",
+        "-pix_fmt",
+        "yuv420p",
+        str(output_file)
+    ])
+
+    return output_file
  
