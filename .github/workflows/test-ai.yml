@@ -33,7 +33,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Test Pixabay API
+      - name: Test Pixabay Image API
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
@@ -42,6 +42,7 @@ jobs:
           import json
           import urllib.parse
           import urllib.request
+          import urllib.error
 
           key = os.environ.get("PIXABAY_API_KEY")
 
@@ -50,7 +51,7 @@ jobs:
                   "PIXABAY_API_KEY GitHub Secret is missing."
               )
 
-          print("Testing Pixabay API...")
+          print("Testing Pixabay Image API...")
 
           params = urllib.parse.urlencode({
               "key": key,
@@ -59,11 +60,7 @@ jobs:
               "safesearch": "true"
           })
 
-          url = (
-              "https://pixabay.com/api/"
-              "?"
-              + params
-          )
+          url = "https://pixabay.com/api/?" + params
 
           request = urllib.request.Request(
               url,
@@ -79,14 +76,12 @@ jobs:
               ) as response:
 
                   print(
-                      "Pixabay HTTP status:",
+                      "Pixabay Image HTTP status:",
                       response.status
                   )
 
                   data = json.loads(
-                      response.read().decode(
-                          "utf-8"
-                      )
+                      response.read().decode("utf-8")
                   )
 
                   print(
@@ -94,14 +89,35 @@ jobs:
                       data.get("totalHits")
                   )
 
+                  print("Pixabay Image API test passed.")
+
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode(
+                  "utf-8",
+                  errors="replace"
+              )
+
+              print(
+                  "Pixabay Image API FAILED"
+              )
+              print(
+                  "HTTP status:",
+                  exc.code
+              )
+              print(
+                  "Response:",
+                  body[:2000]
+              )
+
+              raise
+
           except Exception as exc:
               print(
-                  "Pixabay API test FAILED:"
+                  "Pixabay Image API test FAILED:"
               )
               print(repr(exc))
               raise
 
-          print("Pixabay API test passed.")
           PY
 
       - name: Test Pixabay Video API
@@ -113,8 +129,16 @@ jobs:
           import json
           import urllib.parse
           import urllib.request
+          import urllib.error
 
-          key = os.environ["PIXABAY_API_KEY"]
+          key = os.environ.get("PIXABAY_API_KEY")
+
+          if not key:
+              raise RuntimeError(
+                  "PIXABAY_API_KEY GitHub Secret is missing."
+              )
+
+          print("Testing Pixabay Video API...")
 
           params = urllib.parse.urlencode({
               "key": key,
@@ -123,11 +147,7 @@ jobs:
               "safesearch": "true"
           })
 
-          url = (
-              "https://pixabay.com/api/videos/"
-              "?"
-              + params
-          )
+          url = "https://pixabay.com/api/videos/?" + params
 
           request = urllib.request.Request(
               url,
@@ -148,15 +168,35 @@ jobs:
                   )
 
                   data = json.loads(
-                      response.read().decode(
-                          "utf-8"
-                      )
+                      response.read().decode("utf-8")
                   )
 
                   print(
                       "Video API total hits:",
                       data.get("totalHits")
                   )
+
+                  print("Pixabay Video API test passed.")
+
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode(
+                  "utf-8",
+                  errors="replace"
+              )
+
+              print(
+                  "Pixabay Video API FAILED"
+              )
+              print(
+                  "HTTP status:",
+                  exc.code
+              )
+              print(
+                  "Response:",
+                  body[:2000]
+              )
+
+              raise
 
           except Exception as exc:
               print(
@@ -165,32 +205,70 @@ jobs:
               print(repr(exc))
               raise
 
-          print(
-              "Pixabay Video API test passed."
-          )
           PY
 
+      - name: Check main.py
+        run: |
+          echo "========================================"
+          echo "PYTHON VERSION"
+          echo "========================================"
+          python --version
+
+          echo ""
+          echo "========================================"
+          echo "MAIN.PY LOCATION"
+          echo "========================================"
+          pwd
+          ls -lh src/main.py
+
+          echo ""
+          echo "========================================"
+          echo "PYTHON SYNTAX CHECK"
+          echo "========================================"
+          python -m py_compile src/main.py
+
+          echo "Syntax check passed."
+
       - name: Generate script, visuals, voice and video
-  env:
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-  run: |
-    echo "=== Python version ==="
-    python --version
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          echo "========================================"
+          echo "STARTING AI VIDEO GENERATOR"
+          echo "========================================"
 
-    echo "=== main.py location ==="
-    pwd
-    ls -lh src/main.py
+          python -u src/main.py
 
-    echo "=== main.py syntax check ==="
-    python -m py_compile src/main.py
+          echo ""
+          echo "========================================"
+          echo "MAIN.PY FINISHED"
+          echo "========================================"
 
-    echo "=== Starting main.py ==="
-    python -u src/main.py
+      - name: Check generated files
+        run: |
+          echo "========================================"
+          echo "OUTPUT DIRECTORY"
+          echo "========================================"
 
-    echo "=== main.py finished ==="
-    echo "=== Output directory ==="
-    ls -lah output/ || true
+          if [ -d "output" ]; then
+            echo "output/ exists."
+            ls -lah output/
+          else
+            echo "ERROR: output/ directory does not exist."
+            exit 1
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "SCENES DIRECTORY"
+          echo "========================================"
+
+          if [ -d "output/scenes" ]; then
+            ls -lah output/scenes/
+          else
+            echo "output/scenes/ does not exist."
+          fi
 
       - name: Upload generated files
         uses: actions/upload-artifact@v4
@@ -198,3 +276,6 @@ jobs:
           name: generated-short-assets
           path: output/
           if-no-files-found: error
+          compression-level: 6
+          overwrite: false
+          include-hidden-files: false
