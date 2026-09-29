@@ -15,7 +15,7 @@ API_KEY = os.environ["GEMINI_API_KEY"]
 
 client = genai.Client(api_key=API_KEY)
 
-MODEL = "gemini-3.8-flash"
+MODEL = "gemini-3.5-flash-lite"
 
 prompt = """
 You are a scriptwriter for a YouTube Shorts channel.
