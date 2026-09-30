@@ -3,7 +3,7 @@ name: Generate History Short
 on:
   workflow_dispatch:
   schedule:
-    - cron: "50 15 * * *"
+    - cron: '54 19 * * *'
 
 permissions:
   contents: write
