@@ -1907,6 +1907,7 @@ def main():
         title=data["title"],
         description=youtube_description,
         tags=tags
+        thumbnail_path=OUTPUT_DIR / "thumbnail.jpg"
     )
 
 
