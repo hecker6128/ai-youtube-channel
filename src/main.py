@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 from google import genai
 import edge_tts
@@ -42,6 +43,266 @@ MAX_TOPIC_HISTORY = 100
 # ============================================================
 # BASIC HELPERS
 # ============================================================
+
+def create_thumbnail(image_path, text, output_path):
+    print("Creating thumbnail...")
+
+    image_path = Path(image_path)
+    output_path = Path(output_path)
+
+    if not image_path.exists():
+        raise FileNotFoundError(
+            f"Thumbnail source does not exist: {image_path}"
+        )
+
+    image = Image.open(image_path).convert("RGB")
+
+    # YouTube thumbnail: 1280x720
+    target_width = 1280
+    target_height = 720
+
+    # Crop image to 16:9
+    image_ratio = image.width / image.height
+    target_ratio = target_width / target_height
+
+    if image_ratio > target_ratio:
+        new_width = int(image.height * target_ratio)
+        left = (image.width - new_width) // 2
+
+        image = image.crop(
+            (
+                left,
+                0,
+                left + new_width,
+                image.height
+            )
+        )
+    else:
+        new_height = int(image.width / target_ratio)
+        top = (image.height - new_height) // 2
+
+        image = image.crop(
+            (
+                0,
+                top,
+                image.width,
+                top + new_height
+            )
+        )
+
+    image = image.resize(
+        (target_width, target_height),
+        Image.Resampling.LANCZOS
+    )
+
+    # Slightly darken the whole image.
+    image = ImageEnhance.Brightness(
+        image
+    ).enhance(0.72)
+
+    draw = ImageDraw.Draw(image)
+
+    # Semi-transparent dark panel on the left.
+    overlay = Image.new(
+        "RGBA",
+        image.size,
+        (0, 0, 0, 0)
+    )
+
+    overlay_draw = ImageDraw.Draw(
+        overlay
+    )
+
+    overlay_draw.rounded_rectangle(
+        (55, 80, 760, 640),
+        radius=25,
+        fill=(0, 0, 0, 125)
+    )
+
+    image = Image.alpha_composite(
+        image.convert("RGBA"),
+        overlay
+    ).convert("RGB")
+
+    draw = ImageDraw.Draw(image)
+
+    # Try common fonts available on Ubuntu.
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
+    ]
+
+    font_path = None
+
+    for path in font_paths:
+        if Path(path).exists():
+            font_path = path
+            break
+
+    if not font_path:
+        raise RuntimeError(
+            "No suitable font found."
+        )
+
+    # Dynamic font size.
+    font_size = 76
+
+    while font_size >= 42:
+        font = ImageFont.truetype(
+            font_path,
+            font_size
+        )
+
+        words = text.upper().split()
+        lines = []
+        current = ""
+
+        for word in words:
+            test = (
+                f"{current} {word}".strip()
+            )
+
+            bbox = draw.textbbox(
+                (0, 0),
+                test,
+                font=font
+            )
+
+            if bbox[2] <= 650:
+                current = test
+            else:
+                if current:
+                    lines.append(current)
+
+                current = word
+
+        if current:
+            lines.append(current)
+
+        if len(lines) <= 4:
+            break
+
+        font_size -= 4
+
+    # Center the text vertically.
+    line_height = font_size + 12
+    total_height = (
+        len(lines) * line_height
+    )
+
+    y = (
+        target_height - total_height
+    ) // 2
+
+    for line in lines:
+
+        bbox = draw.textbbox(
+            (0, 0),
+            line,
+            font=font
+        )
+
+        text_width = (
+            bbox[2] - bbox[0]
+        )
+
+        x = 85
+
+        # Black outline makes text readable
+        # without looking like an AI-generated graphic.
+        draw.text(
+            (x, y),
+            line,
+            font=font,
+            fill="white",
+            stroke_width=5,
+            stroke_fill="black"
+        )
+
+        y += line_height
+
+    # Small HISTORY label.
+    label_font = ImageFont.truetype(
+        font_path,
+        26
+    )
+
+    draw.rounded_rectangle(
+        (85, 35, 235, 72),
+        radius=10,
+        fill=(255, 255, 255)
+    )
+
+    draw.text(
+        (105, 39),
+        "HISTORY",
+        font=label_font,
+        fill="black"
+    )
+
+    image.save(
+        output_path,
+        "JPEG",
+        quality=94,
+        optimize=True
+    )
+
+    print(
+        "Thumbnail created:",
+        output_path
+    )
+
+def get_thumbnail_source():
+    image_source = (
+        SCENES_DIR /
+        "scene_1_source.jpg"
+    )
+
+    video_source = (
+        SCENES_DIR /
+        "scene_1_source.mp4"
+    )
+
+    thumbnail_source = (
+        SCENES_DIR /
+        "thumbnail_source.jpg"
+    )
+
+    if image_source.exists():
+        return image_source
+
+    if video_source.exists():
+        print(
+            "Extracting thumbnail frame from scene 1..."
+        )
+
+        command = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            "1",
+            "-i",
+            str(video_source),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(thumbnail_source)
+        ]
+
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        if thumbnail_source.exists():
+            return thumbnail_source
+
+    raise RuntimeError(
+        "Could not create thumbnail source."
+    )
 
 def run_command(command):
     print("RUN:", " ".join(map(str, command)))
@@ -328,6 +589,20 @@ OUTPUT FORMAT:
 TITLE:
 One short YouTube title.
 
+THUMBNAIL:
+2–5 words for the thumbnail.
+
+The thumbnail text must be:
+- short
+- attention-grabbing
+- directly related to the historical event
+- different from the exact video title when possible
+- natural and not clickbait
+- written in uppercase
+
+Do NOT use emojis.
+Do NOT use phrases like "YOU WON'T BELIEVE THIS".
+
 HOOK:
 One short sentence that immediately creates curiosity.
 
@@ -402,6 +677,7 @@ def parse_gemini(text):
     ]
 
     title = extract_field(text, "TITLE")
+    thumbnail = extract_field(text, "THUMBNAIL")
     hook = extract_field(text, "HOOK")
 
     script = extract_multiline_field(
@@ -455,6 +731,7 @@ def parse_gemini(text):
 
     return {
         "title": title,
+        "thumbnail": thumbnail,
         "hook": hook,
         "script": script,
         "description": description,
@@ -1522,6 +1799,28 @@ def main():
         scene_paths.append(
             scene
         )
+
+    # --------------------------------------------------------
+    # Create YouTube thumbnail.
+    # --------------------------------------------------------
+
+    thumbnail_source = get_thumbnail_source()
+
+    thumbnail_path = (
+        OUTPUT_DIR /
+        "thumbnail.jpg"
+    )
+
+    thumbnail_text = data.get(
+        "thumbnail",
+        data["title"]
+    )
+
+    create_thumbnail(
+        thumbnail_source,
+        thumbnail_text,
+        thumbnail_path
+    )
 
     # --------------------------------------------------------
     # Final video.
