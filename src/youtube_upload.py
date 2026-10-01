@@ -42,7 +42,7 @@ def get_next_publish_time():
     return publish_time
 
 
-def upload_video(video_path, title, description, tags=None):
+def upload_video(video_path, title, description, tags=None, thumbnail_path=None):
     video_path = Path(video_path)
 
     if not video_path.exists():
@@ -89,6 +89,41 @@ def upload_video(video_path, title, description, tags=None):
     response = request.execute()
 
     video_id = response["id"]
+
+    # --------------------------------------------------------
+    # Set custom YouTube thumbnail.
+    # --------------------------------------------------------
+
+    if thumbnail_path:
+        thumbnail_path = Path(
+            thumbnail_path
+        )
+
+        if thumbnail_path.exists():
+
+            print(
+                "Uploading custom thumbnail..."
+            )
+
+            thumbnail_media = MediaFileUpload(
+                str(thumbnail_path),
+                mimetype="image/jpeg"
+            )
+
+            youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=thumbnail_media
+            ).execute()
+
+            print(
+                "Custom thumbnail uploaded."
+            )
+
+        else:
+            print(
+                "WARNING: Thumbnail not found:",
+                thumbnail_path
+            )
 
     print("")
     print("========================================")
