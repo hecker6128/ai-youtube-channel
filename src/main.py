@@ -1906,7 +1906,7 @@ def main():
         video_path=final_video,
         title=data["title"],
         description=youtube_description,
-        tags=tags
+        tags=tags,
         thumbnail_path=OUTPUT_DIR / "thumbnail.jpg"
     )
 
