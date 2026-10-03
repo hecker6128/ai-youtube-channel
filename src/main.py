@@ -367,7 +367,7 @@ Queries should describe visible things that can actually appear in footage.
 
 Make SCENE1 the most dramatic and visually interesting.
 
-In description add one empty row at the bottom and underneath him put this text: "Start trading crypto, forex and indices with low fees on PrimeXBT:", row under this one: "https://bit.ly/4y41bl8".
+In description add one empty row at the bottom and underneath him put this text: "Start trading crypto, forex and indices with low fees on PrimeXBT:", row under this one: "https://bit.ly/4y41bl8", row under this one: "You want to become partner? Sign up on:", row under this one: "https://bit.ly/3TkBSgt".
 """
 
     response = client.models.generate_content(
