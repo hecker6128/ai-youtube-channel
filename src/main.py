@@ -366,6 +366,8 @@ Each query should contain approximately 3–8 simple English words.
 Queries should describe visible things that can actually appear in footage.
 
 Make SCENE1 the most dramatic and visually interesting.
+
+In description add one empty row at the bottom and underneath him put this text: "Start trading crypto, forex and indices with low fees on PrimeXBT:", row under this one: "https://bit.ly/4y41bl8".
 """
 
     response = client.models.generate_content(
