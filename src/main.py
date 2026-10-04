@@ -335,7 +335,18 @@ SCRIPT:
 The complete narration.
 
 DESCRIPTION:
-A short YouTube description.
+Write a short, engaging description related to the video topic.
+
+After the video description, ALWAYS add exactly this fixed promotional section,
+with one blank line before each paragraph:
+
+Start trading crypto, forex and indices with low fees on PrimeXBT: https://bit.ly/4y41bl8
+
+You want to become partner? Sign up on: https://bit.ly/3TkBSgt.
+
+Do NOT modify, rewrite, remove, or replace these two promotional paragraphs.
+Do NOT add any other promotional links.
+Do NOT put hashtags after the promotional section.
 
 TAGS:
 5–10 relevant tags separated by commas.
@@ -366,8 +377,6 @@ Each query should contain approximately 3–8 simple English words.
 Queries should describe visible things that can actually appear in footage.
 
 Make SCENE1 the most dramatic and visually interesting.
-
-In description add one empty row at the bottom and underneath him put this text: "Start trading crypto, forex and indices with low fees on PrimeXBT:", row under this one: "https://bit.ly/4y41bl8", row under this one: "You want to become partner? Sign up on:", row under this one: "https://bit.ly/3TkBSgt".
 """
 
     response = client.models.generate_content(
