@@ -337,17 +337,6 @@ The complete narration.
 DESCRIPTION:
 Write a short, engaging description related to the video topic.
 
-After the video description, ALWAYS add exactly this fixed promotional section,
-with one blank line before each paragraph:
-
-Start trading crypto, forex and indices with low fees on PrimeXBT: https://bit.ly/4y41bl8
-
-You want to become partner? Sign up on: https://bit.ly/3TkBSgt.
-
-Do NOT modify, rewrite, remove, or replace these two promotional paragraphs.
-Do NOT add any other promotional links.
-Do NOT put hashtags after the promotional section.
-
 TAGS:
 5–10 relevant tags separated by commas.
 
