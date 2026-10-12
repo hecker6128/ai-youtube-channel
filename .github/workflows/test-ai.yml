@@ -48,7 +48,10 @@ jobs:
       # FFMPEG
       # ==========================================
 
-      
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       
 
 
@@ -61,9 +64,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-
-      - name: Check Edge TTS version
-        run: python -m pip show edge-tts
 
       # ==========================================
       # TEST PIXABAY IMAGE API
