@@ -478,33 +478,86 @@ def parse_gemini(text):
 # TEXT TO SPEECH
 # ============================================================
 
-async def create_voice(script, output_path):
-    print("Generating voice...")
-
-    communicate = edge_tts.Communicate(
-        script,
-        VOICE
-    )
-
-    await communicate.save(
-        str(output_path)
-    )
-
-    print(
-        "Voice saved:",
-        output_path
-    )
-
 
 def create_voice_sync(script, output_path):
-    import asyncio
+    from google.genai import types
 
-    asyncio.run(
-        create_voice(
-            script,
-            output_path
-        )
+    print("Generating voice with Gemini TTS...")
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    response = client.models.generate_content(
+        model="gemini-3.8-flash-tts",
+        contents=[
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": script,
+                        "speech_metadata": {
+                            "style": (
+                                "Engaging American English male narrator, "
+                                "clear pronunciation, energetic documentary "
+                                "delivery, natural pacing. Read the script "
+                                "verbatim without adding or omitting words."
+                            )
+                        },
+                    }
+                ],
+            }
+        ],
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Puck"
+                    )
+                )
+            ),
+        ),
     )
+
+    audio_data = None
+
+    for part in response.parts:
+        if part.inline_data and part.inline_data.data:
+            audio_data = part.inline_data.data
+            break
+
+    if not audio_data:
+        raise RuntimeError("Gemini TTS returned no audio data.")
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    wav_path = output_path.with_suffix(".wav")
+    wav_path.write_bytes(audio_data)
+
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i", str(wav_path),
+                "-codec:a", "libmp3lame",
+                "-q:a", "3",
+                str(output_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Audio conversion failed:\n{result.stdout}"
+            )
+    finally:
+        wav_path.unlink(missing_ok=True)
+
+    print("Voice saved:", output_path)
+
 
 
 # ============================================================
