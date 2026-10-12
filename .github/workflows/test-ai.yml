@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   generate:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
 
