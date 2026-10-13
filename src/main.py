@@ -276,7 +276,6 @@ Avoid scenes that are only:
 - a generic object sitting on a table
 
 Prefer scenes containing visible movement such as:
-- people moving
 - crowds
 - soldiers marching
 - vehicles
@@ -336,10 +335,6 @@ The complete narration.
 
 DESCRIPTION:
 Write a short, engaging description related to the video topic.
-After the video description, ALWAYS add exactly this fixed promotional section,
-with one blank line before each paragraph:
-
-Support my work on: https://donatr.ee/yanmujicic
 
 TAGS:
 5–10 relevant tags separated by commas.
