@@ -335,10 +335,6 @@ The complete narration.
 
 DESCRIPTION:
 Write a short, engaging description related to the video topic.
-After the video description, ALWAYS add exactly this fixed promotional section,
-with one blank line before each paragraph:
-
-Support my work on: https://donatr.ee/yanmujicic
 
 TAGS:
 5–10 relevant tags separated by commas.
@@ -420,7 +416,7 @@ def parse_gemini(text):
     description = extract_field(
         text,
         "DESCRIPTION"
-    )
+    ) + "\n\nSupport my work on: https://donatr.ee/yanmujicic"
 
     tags = extract_field(
         text,
