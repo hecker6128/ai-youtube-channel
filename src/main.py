@@ -26,7 +26,7 @@ if not GEMINI_API_KEY:
 if not PIXABAY_API_KEY:
     raise RuntimeError("PIXABAY_API_KEY is missing")
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = "gemini-3.8-flash"
 VOICE = "en-US-GuyNeural"
 
 OUTPUT_DIR = Path("output")
