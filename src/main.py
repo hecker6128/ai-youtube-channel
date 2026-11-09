@@ -469,60 +469,45 @@ def parse_gemini(text):
 
 
 def create_voice_sync(script, output_path):
-    import wave
+    import base64
     import subprocess
     from pathlib import Path
-    from google.genai import types
 
     print("Generating voice with Gemini TTS...")
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
     prompt = (
-        "Read the following script exactly as written. "
-        "Use an engaging American English male documentary narrator voice, "
-        "clear pronunciation, energetic delivery and natural pacing. "
-        "Do not add, remove or change any words.\n\n"
-        f"{script}"
+        "Read this script verbatim in an engaging American English "
+        "male documentary narrator voice. Use clear pronunciation, "
+        "energetic delivery and natural pacing. Do not add or omit words.\n\n"
+        + script
     )
 
-    # IMPORTANT: Use Models API, NOT Interactions API.
-    response = client.models.generate_content(
+    # Gemini 3.1 TTS through the Interactions API.
+    interaction = client.interactions.create(
         model="gemini-3.1-flash-tts-preview",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Puck"
-                    )
-                )
-            )
-        )
+        input=prompt,
+        response_format={"type": "audio"},
+        generation_config={
+            "speech_config": [
+                {"voice": "Puck"}
+            ]
+        }
     )
 
-    audio_data = None
-
-    for part in response.parts:
-        if part.inline_data and part.inline_data.data:
-            audio_data = part.inline_data.data
-            break
-
-    if not audio_data:
+    if not interaction.output_audio or not interaction.output_audio.data:
         raise RuntimeError("Gemini TTS returned no audio data.")
+
+    audio_data = base64.b64decode(interaction.output_audio.data)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     wav_path = output_path.with_suffix(".wav")
 
-    # Gemini TTS returns raw PCM audio.
-    with wave.open(str(wav_path), "wb") as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(24000)
-        wav_file.writeframes(audio_data)
+    # Interactions API returns a WAV audio file.
+    wav_path.write_bytes(audio_data)
 
     try:
         result = subprocess.run(
