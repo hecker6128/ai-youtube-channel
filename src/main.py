@@ -38,7 +38,6 @@ TOPIC_HISTORY_FILE = Path("used_topics.json")
 
 MAX_TOPIC_HISTORY = 100
 
-client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
 # BASIC HELPERS
@@ -462,25 +461,7 @@ def parse_gemini(text):
         "scenes": scenes
     }
 
-#==========================
 
-print("\n========== AVAILABLE TTS MODELS ==========")
-
-try:
-    for model in client.models.list():
-        name = getattr(model, "name", "") or ""
-
-        if "tts" in name.lower():
-            print("MODEL:", name)
-            print(
-                "SUPPORTED ACTIONS:",
-                getattr(model, "supported_actions", None)
-            )
-
-except Exception as e:
-    print("MODEL LIST ERROR:", repr(e))
-
-print("==========================================\n")
 # ============================================================
 # TEXT TO SPEECH
 # ============================================================
@@ -555,7 +536,30 @@ def create_voice_sync(script, output_path):
         wav_path.unlink(missing_ok=True)
 
     print("Voice saved:", output_path)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
+#==========================
+
+import google.genai
+
+print("\n========== GEMINI DIAGNOSTICS ==========")
+print("SDK VERSION:", google.genai.__version__)
+
+try:
+    models = list(client.models.list())
+
+    print("TOTAL MODELS:", len(models))
+
+    for model in models:
+        print(
+            "MODEL:", getattr(model, "name", None),
+            "| ACTIONS:", getattr(model, "supported_actions", None)
+        )
+
+except Exception as e:
+    print("MODEL LIST ERROR:", repr(e))
+
+print("========================================\n")
 
 # ============================================================
 # AUDIO DURATION
