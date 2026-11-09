@@ -488,7 +488,7 @@ def create_voice_sync(script, output_path):
 
     # IMPORTANT: Use Models API, NOT Interactions API.
     response = client.models.generate_content(
-        model="gemini-2.5-flash-preview-tts",
+        model="gemini-3.1-flash-tts-preview",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_modalities=["AUDIO"],
