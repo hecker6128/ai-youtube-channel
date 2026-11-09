@@ -38,6 +38,7 @@ TOPIC_HISTORY_FILE = Path("used_topics.json")
 
 MAX_TOPIC_HISTORY = 100
 
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
 # BASIC HELPERS
