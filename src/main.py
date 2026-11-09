@@ -467,58 +467,64 @@ def parse_gemini(text):
 # ============================================================
 
 
+
 def create_voice_sync(script, output_path):
-    from google.genai import types
+    import base64
 
     print("Generating voice with Gemini TTS...")
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    response = client.models.generate_content(
+    interaction = client.interactions.create(
         model="gemini-3.8-flash-tts",
-        contents=[
+        input=[
             {
-                "role": "user",
-                "parts": [
+                "type": "user_input",
+                "content": [
                     {
+                        "type": "text",
                         "text": script,
-                        "speech_metadata": {
-                            "style": (
-                                "Engaging American English male narrator, "
-                                "clear pronunciation, energetic documentary "
-                                "delivery, natural pacing. Read the script "
-                                "verbatim without adding or omitting words."
-                            )
-                        },
+                        "annotations": [
+                            {
+                                "type": "speech_metadata",
+                                "style": (
+                                    "Engaging American English male narrator, "
+                                    "clear pronunciation, energetic documentary "
+                                    "delivery, natural pacing. Read the script "
+                                    "verbatim without adding or omitting words."
+                                ),
+                            }
+                        ],
                     }
                 ],
             }
         ],
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Puck"
-                    )
-                )
-            ),
-        ),
+        response_format={"type": "audio"},
+        generation_config={
+            "speech_config": [
+                {"voice": "Puck"}
+            ]
+        },
     )
 
-    audio_data = None
+    audio_output = getattr(interaction, "output_audio", None)
+    encoded_audio = (
+        getattr(audio_output, "data", None)
+        if audio_output else None
+    )
 
-    for part in response.parts:
-        if part.inline_data and part.inline_data.data:
-            audio_data = part.inline_data.data
-            break
+    if not encoded_audio:
+        raise RuntimeError(
+            "Gemini TTS returned no audio data. "
+            f"Status: {getattr(interaction, 'status', 'unknown')}"
+        )
 
-    if not audio_data:
-        raise RuntimeError("Gemini TTS returned no audio data.")
+    audio_data = base64.b64decode(encoded_audio)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Gemini returns WAV audio by default.
     wav_path = output_path.with_suffix(".wav")
     wav_path.write_bytes(audio_data)
 
@@ -541,11 +547,16 @@ def create_voice_sync(script, output_path):
             raise RuntimeError(
                 f"Audio conversion failed:\n{result.stdout}"
             )
+
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError(
+                "FFmpeg did not create a valid MP3 file."
+            )
+
     finally:
         wav_path.unlink(missing_ok=True)
 
     print("Voice saved:", output_path)
-
 
 
 # ============================================================
