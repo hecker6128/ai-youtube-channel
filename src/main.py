@@ -469,111 +469,48 @@ def parse_gemini(text):
 
 
 def create_voice_sync(script, output_path):
-    import base64
-    import subprocess
+    import asyncio
+    import edge_tts
     from pathlib import Path
 
-    print("Generating voice with Gemini TTS...")
+    print("Generating voice with Microsoft Edge TTS...")
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    async def generate():
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
 
-    prompt = (
-        "Read this script verbatim in an engaging American English "
-        "male documentary narrator voice. Use clear pronunciation, "
-        "energetic delivery and natural pacing. Do not add or omit words.\n\n"
-        + script
-    )
+        voice = "en-US-GuyNeural"
 
-    # Gemini 3.1 TTS through the Interactions API.
-    interaction = client.interactions.create(
-    model="gemini-3.8-flash-tts",
-    input=[{
-        "type": "user_input",
-        "content": [{
-            "type": "text",
-            "text": script,
-            "annotations": [{
-                "type": "speech_metadata",
-                "style": (
-                    "Engaging American English male documentary narrator. "
-                    "Clear pronunciation, energetic delivery, natural pacing. "
-                    "Read the text exactly as written without adding or omitting words."
+        for attempt in range(1, 4):
+            try:
+                communicate = edge_tts.Communicate(
+                    text=script,
+                    voice=voice,
+                    rate="-5%",
+                    volume="+0%",
+                    pitch="-1Hz"
                 )
-            }]
-        }]
-    }],
-    response_format={"type": "audio"},
-    generation_config={
-        "speech_config": [
-            {"voice": "Puck"}
-        ]
-    }
-)
 
-    if not interaction.output_audio or not interaction.output_audio.data:
-        raise RuntimeError("Gemini TTS returned no audio data.")
+                await communicate.save(str(output))
 
-    audio_data = base64.b64decode(interaction.output_audio.data)
+                if not output.exists() or output.stat().st_size == 0:
+                    raise RuntimeError("Generated MP3 is empty.")
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+                print(f"Voice generated successfully: {output}")
+                print(f"Voice size: {output.stat().st_size} bytes")
+                return
 
-    wav_path = output_path.with_suffix(".wav")
+            except Exception as e:
+                print(f"Edge TTS attempt {attempt}/3 failed: {e}")
 
-    # Interactions API returns a WAV audio file.
-    wav_path.write_bytes(audio_data)
+                if attempt == 3:
+                    raise RuntimeError(
+                        "Edge TTS failed after 3 attempts."
+                    ) from e
 
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i", str(wav_path),
-                "-codec:a", "libmp3lame",
-                "-q:a", "3",
-                str(output_path)
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
+                await asyncio.sleep(attempt * 5)
 
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Audio conversion failed:\n{result.stdout}"
-            )
-
-        if not output_path.exists() or output_path.stat().st_size == 0:
-            raise RuntimeError("MP3 file was not created correctly.")
-
-    finally:
-        wav_path.unlink(missing_ok=True)
-
-    print("Voice saved:", output_path)
-client = genai.Client(api_key=GEMINI_API_KEY)
-
-#==========================
-
-import google.genai
-
-print("\n========== GEMINI DIAGNOSTICS ==========")
-print("SDK VERSION:", google.genai.__version__)
-
-try:
-    models = list(client.models.list())
-
-    print("TOTAL MODELS:", len(models))
-
-    for model in models:
-        print(
-            "MODEL:", getattr(model, "name", None),
-            "| ACTIONS:", getattr(model, "supported_actions", None)
-        )
-
-except Exception as e:
-    print("MODEL LIST ERROR:", repr(e))
-
-print("========================================\n")
+    asyncio.run(generate())
 
 # ============================================================
 # AUDIO DURATION
