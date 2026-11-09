@@ -486,15 +486,29 @@ def create_voice_sync(script, output_path):
 
     # Gemini 3.1 TTS through the Interactions API.
     interaction = client.interactions.create(
-        model="gemini-3.1-flash-tts-preview",
-        input=prompt,
-        response_format={"type": "audio"},
-        generation_config={
-            "speech_config": [
-                {"voice": "Puck"}
-            ]
-        }
-    )
+    model="gemini-3.8-flash-tts",
+    input=[{
+        "type": "user_input",
+        "content": [{
+            "type": "text",
+            "text": script,
+            "annotations": [{
+                "type": "speech_metadata",
+                "style": (
+                    "Engaging American English male documentary narrator. "
+                    "Clear pronunciation, energetic delivery, natural pacing. "
+                    "Read the text exactly as written without adding or omitting words."
+                )
+            }]
+        }]
+    }],
+    response_format={"type": "audio"},
+    generation_config={
+        "speech_config": [
+            {"voice": "Puck"}
+        ]
+    }
+)
 
     if not interaction.output_audio or not interaction.output_audio.data:
         raise RuntimeError("Gemini TTS returned no audio data.")
