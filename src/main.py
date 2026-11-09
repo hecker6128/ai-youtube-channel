@@ -469,64 +469,60 @@ def parse_gemini(text):
 
 
 def create_voice_sync(script, output_path):
-    import base64
+    import wave
+    import subprocess
+    from pathlib import Path
+    from google.genai import types
 
     print("Generating voice with Gemini TTS...")
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    interaction = client.interactions.create(
+    prompt = (
+        "Read the following script exactly as written. "
+        "Use an engaging American English male documentary narrator voice, "
+        "clear pronunciation, energetic delivery and natural pacing. "
+        "Do not add, remove or change any words.\n\n"
+        f"{script}"
+    )
+
+    # IMPORTANT: Use Models API, NOT Interactions API.
+    response = client.models.generate_content(
         model="gemini-2.5-flash-preview-tts",
-        input=[
-            {
-                "type": "user_input",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": script,
-                        "annotations": [
-                            {
-                                "type": "speech_metadata",
-                                "style": (
-                                    "Engaging American English male narrator, "
-                                    "clear pronunciation, energetic documentary "
-                                    "delivery, natural pacing. Read the script "
-                                    "verbatim without adding or omitting words."
-                                ),
-                            }
-                        ],
-                    }
-                ],
-            }
-        ],
-        response_format={"type": "audio"},
-        generation_config={
-            "speech_config": [
-                {"voice": "Puck"}
-            ]
-        },
-    )
-
-    audio_output = getattr(interaction, "output_audio", None)
-    encoded_audio = (
-        getattr(audio_output, "data", None)
-        if audio_output else None
-    )
-
-    if not encoded_audio:
-        raise RuntimeError(
-            "Gemini TTS returned no audio data. "
-            f"Status: {getattr(interaction, 'status', 'unknown')}"
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Puck"
+                    )
+                )
+            )
         )
+    )
 
-    audio_data = base64.b64decode(encoded_audio)
+    audio_data = None
+
+    for part in response.parts:
+        if part.inline_data and part.inline_data.data:
+            audio_data = part.inline_data.data
+            break
+
+    if not audio_data:
+        raise RuntimeError("Gemini TTS returned no audio data.")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Gemini returns WAV audio by default.
     wav_path = output_path.with_suffix(".wav")
-    wav_path.write_bytes(audio_data)
+
+    # Gemini TTS returns raw PCM audio.
+    with wave.open(str(wav_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(24000)
+        wav_file.writeframes(audio_data)
 
     try:
         result = subprocess.run(
@@ -536,11 +532,11 @@ def create_voice_sync(script, output_path):
                 "-i", str(wav_path),
                 "-codec:a", "libmp3lame",
                 "-q:a", "3",
-                str(output_path),
+                str(output_path)
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            text=True
         )
 
         if result.returncode != 0:
@@ -549,9 +545,7 @@ def create_voice_sync(script, output_path):
             )
 
         if not output_path.exists() or output_path.stat().st_size == 0:
-            raise RuntimeError(
-                "FFmpeg did not create a valid MP3 file."
-            )
+            raise RuntimeError("MP3 file was not created correctly.")
 
     finally:
         wav_path.unlink(missing_ok=True)
