@@ -461,7 +461,25 @@ def parse_gemini(text):
         "scenes": scenes
     }
 
+#==========================
 
+print("\n========== AVAILABLE TTS MODELS ==========")
+
+try:
+    for model in client.models.list():
+        name = getattr(model, "name", "") or ""
+
+        if "tts" in name.lower():
+            print("MODEL:", name)
+            print(
+                "SUPPORTED ACTIONS:",
+                getattr(model, "supported_actions", None)
+            )
+
+except Exception as e:
+    print("MODEL LIST ERROR:", repr(e))
+
+print("==========================================\n")
 # ============================================================
 # TEXT TO SPEECH
 # ============================================================
