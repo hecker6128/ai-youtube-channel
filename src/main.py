@@ -476,7 +476,7 @@ def create_voice_sync(script, output_path):
     client = genai.Client(api_key=GEMINI_API_KEY)
 
     interaction = client.interactions.create(
-        model="gemini-3.8-flash-tts",
+        model="gemini-2.5-flash-preview-tts",
         input=[
             {
                 "type": "user_input",
